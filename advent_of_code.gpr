@@ -1,0 +1,24 @@
+project Advent_Of_Code is
+
+   for Source_Dirs use ("src", "../../My_Ada_Files/DJH/src", "../../My_Ada_Files/NT_Console/src");
+   for Object_Dir use "obj";
+   for Main use ("december_01.adb");
+
+   package Compiler is
+      for Switches ("ada") use ("-gnat2022", "-gnatf", "-g");
+   end Compiler;
+
+   package Linker is
+      for Switches ("ada") use ("-g");
+   end Linker;
+
+   package Ide is
+      for Vcs_Kind use "git";
+   end Ide;
+
+   package Builder is
+      for Switches ("ada") use ("-j8");
+   end Builder;
+
+end Advent_Of_Code;
+
