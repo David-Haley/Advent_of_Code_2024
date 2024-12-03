@@ -1,12 +1,7 @@
 with Ada.Text_IO; use Ada.Text_IO;
 with Ada.Command_Line; use Ada.Command_Line;
-with Ada.Text_IO.Unbounded_IO; use Ada.Text_IO.Unbounded_IO;
-with Ada.Strings; use Ada.Strings;
-with Ada.Strings.Unbounded; use Ada.Strings.Unbounded;
-with Ada.Strings.Maps.Constants; use Ada.Strings.Maps.Constants;
 with Ada.Containers; use Ada.Containers;
 with Ada.Containers.Vectors;
-with Ada.Containers.Ordered_Maps;
 with DJH.Execution_Time; use DJH.Execution_Time;
 
 procedure December_02 is
@@ -21,7 +16,6 @@ procedure December_02 is
    package Report_Stores is new
      Ada.Containers.Vectors (Report_indices, Reports.Vector);
    use Report_Stores;
-
 
    procedure Read_Input (Report_Store : out Report_Stores.Vector) is
 

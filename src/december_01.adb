@@ -1,12 +1,7 @@
 with Ada.Text_IO; use Ada.Text_IO;
 with Ada.Command_Line; use Ada.Command_Line;
-with Ada.Text_IO.Unbounded_IO; use Ada.Text_IO.Unbounded_IO;
-with Ada.Strings; use Ada.Strings;
-with Ada.Strings.Unbounded; use Ada.Strings.Unbounded;
-with Ada.Strings.Maps.Constants; use Ada.Strings.Maps.Constants;
 with Ada.Containers; use Ada.Containers;
 with Ada.Containers.Vectors;
-with Ada.Containers.Ordered_Maps;
 with DJH.Execution_Time; use DJH.Execution_Time;
 
 procedure December_01 is
@@ -22,14 +17,14 @@ procedure December_01 is
    package Histograms is new Ada.Containers.Ordered_Maps (Locations, Positive);
    use Histograms;
 
-   procedure Read_input (Left, Right : out Location_Lists.Vector) is
+   procedure Read_Input (Left, Right : out Location_Lists.Vector) is
 
       Input_File : File_Type;
       Text : Unbounded_String;
       Start_At, First : Positive;
       Last : Natural;
 
-   begin -- Read_input
+   begin -- Read_Input
       if Argument_Count = 0 then
          Open (Input_File, In_File, "december_01.txt");
       else
@@ -45,7 +40,7 @@ procedure December_01 is
          Append (Right, Locations'Value (Slice (Text, First, Last)));
       end loop; -- not End_Of_File (Input_File)
       Close (Input_File);
-   end Read_input;
+   end Read_Input;
 
    Procedure Build_Hystogram (Location_List : in Location_Lists.Vector;
                               Histogram : out Histograms.Map) is
@@ -66,7 +61,7 @@ procedure December_01 is
    Histogram : Histograms.Map;
 
 begin -- December_01
-   Read_input (Left, Right);
+   Read_Input (Left, Right);
    Sort (Left);
    Sort (Right);
    for L in Iterate (Left) loop
