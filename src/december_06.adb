@@ -66,7 +66,7 @@ procedure December_06 is
                   Guard_State.Position := (X, Y);
                when others =>
                   raise Program_Error with "Invalid character '" &
-                    Element (Text, X) & "' at (" & X'Img & "'" & Y'Img & ")";
+                    Element (Text, X) & "' at (" & X'Img & "," & Y'Img & ")";
             end case; -- Element (Text, X)
          end loop; -- X in Ordinates range 1 .. Length (Text)
          Y := @ + 1;
