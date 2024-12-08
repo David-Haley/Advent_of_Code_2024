@@ -56,7 +56,7 @@ procedure December_07 is
             if Element (Text, Start_AT) /= ':' then
                raise Program_Error with "Found '" & Element (Text, Start_AT) &
                  "' expected ':'";
-            end if; -- Element (Text, Start_AT) /= '.'
+            end if; -- Element (Text, Start_AT) /= ':'
             loop -- Read one operand
                Find_Token (Text, Decimal_Digit_Set, Start_At,Inside, First,
                            Last);
@@ -129,6 +129,8 @@ procedure December_07 is
             end if; -- Carry
          end loop; -- I in Operator_Indices
       end Increment;
+
+      pragma Inline_Always ("&", Increment);
 
    begin -- Valid_2
       loop -- One Test

@@ -156,7 +156,14 @@ procedure December_08 is
       for S in Iterate (Pair_Store) loop
          for P in Iterate (Element (S)) loop
             Step := Element (P).C2 - Element (P).C1;
+            -- Finding the GCD is redundant, at least for my input, for all
+            -- pairs the GCD is 1!
             Divisor := Gcd (Step.X, Step.Y);
+            if Divisor > 1 then
+               Put_Line ("(" & Element (P).C2.X'Img & "," & Element (P).C2.X'Img
+                         & ")(" & Element (P).C1.X'Img & "," &
+                           Element (P).C1.X'Img & " GCD" & Divisor'Img);
+            end if; -- Divisor > 1
             Step := (Step.X / Divisor, Step.Y / Divisor);
             Antinode := Element (P).C1;
             while On_Map (Bottom_Right, Antinode) loop
