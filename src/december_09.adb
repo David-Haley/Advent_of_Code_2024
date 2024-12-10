@@ -82,6 +82,9 @@ procedure December_09 is
       To_Block : Block_Addresses;
       From_Block : Block_Addresses := Last_Key (Disc);
       File_Length, Free_Length : Block_Counts;
+      Previous_Free : array (Block_Counts) of Block_Addresses :=
+        (others => Block_Addresses'First);
+      -- Stores the result from the last search
 
    begin -- Defrag
       while Disc (From_Block) = Free_Block loop
@@ -98,7 +101,10 @@ procedure December_09 is
          while Disc (From_Block - File_Length) = File_To_Move loop
             File_Length := @ + 1;
          end loop; -- Disc (From_Block - File_Length) = File_To_Move
-         To_Block := Block_Addresses'First;
+         -- Using the result of the previous free search for a given block size,
+         -- rather than starting at the beginning of the disc, reduced the
+         -- execution time from 42s to 160ms!
+         To_Block := Previous_Free (File_Length);
          loop -- Find first fit
             while Disc (To_Block) /= Free_Block and
               To_Block < Last_Key (Disc) loop
@@ -114,6 +120,7 @@ procedure December_09 is
               To_Block > From_Block - File_Length;
             To_Block := @ + Free_Length;
          end loop; -- Find first fit
+         Previous_Free (File_Length) := To_Block;
          if Free_Length >= File_Length and
            To_Block < From_Block - File_Length then
             -- the move actually reverses the block order but all that matters
