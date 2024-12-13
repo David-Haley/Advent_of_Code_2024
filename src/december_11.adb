@@ -1,15 +1,15 @@
 with Ada.Text_IO; use Ada.Text_IO;
 with Ada.Command_Line; use Ada.Command_Line;
-with Ada.Text_IO.Unbounded_IO; use Ada.Text_IO.Unbounded_IO;
 with Ada.Strings; use Ada.Strings;
 with Ada.Strings.Fixed; use Ada.Strings.Fixed;
-with Ada.Strings.Maps; use Ada.Strings.Maps;
 with Ada.Containers; use Ada.Containers;
 with Ada.Containers.Doubly_Linked_Lists;
+with Ada.Containers.Ordered_Maps;
 with DJH.Execution_Time; use DJH.Execution_Time;
-with DJH.Gcd_Lcm;
 
 procedure December_11 is
+
+   subtype Long_Natural is Long_Long_Integer range 0 .. Long_Long_Integer'Last;
 
    subtype Stones is Long_Long_Integer range 0 .. Long_Long_Integer'Last;
 
@@ -71,6 +71,75 @@ procedure December_11 is
       end loop; -- Sc /= Stone_Lines.No_Element
    end Blink;
 
+   function Blink_75 (Stone_Line : in Stone_Lines.List)
+                      return Long_Natural is
+
+      package Histograms is new
+        Ada.Containers.Ordered_Maps (Long_Natural, Long_Natural);
+      use Histograms;
+
+      package Caches is new
+        Ada.Containers.Ordered_Maps (Stones, Histograms.Map);
+      use Caches;
+
+      procedure Blink_25 (Stone : in Stones;
+                          Cache : in out Caches.Map) is
+
+         -- Assumes that Stone does not already exist in Cache, will raise an
+         -- exception if it already exists
+
+         One_Stone_Line : Stone_Lines.List := Stone_Lines.Empty_List;
+
+      begin -- Blink_25
+         Append (One_Stone_Line, Stone);
+         for B in Blinks loop
+            Blink (One_Stone_Line);
+         end loop; -- B in Blinks
+         Insert (Cache, Stone, Histograms.Empty_Map);
+         for S in Iterate (One_Stone_Line) loop
+            if Contains (Cache (Stone), Element (S)) then
+               Cache (Stone) (Element (S)) := Cache (Stone) (Element (S)) + 1;
+            else
+               insert (Cache (Stone), Element (S), 1);
+            end if; -- Contains (Cache (Stone), Element (S))
+         end loop; -- S in Iterate (One_Stone_Line)
+         Clear (One_Stone_Line);
+      end Blink_25;
+
+      function Count_Stones (Stone : in Stones;
+                             Cache : in out Caches.Map;
+                             Level : in Natural := 2) return Long_Natural is
+
+         Result : Long_Natural := 0;
+
+      begin -- Count_Stones
+         if not Contains (Cache, Stone) then
+            Blink_25 (Stone, Cache);
+         end if; -- not Contains (Cache, Stone)
+         if Level = 0 then
+            for S in Iterate (Cache (Stone)) loop
+               Result := @ + Element (S);
+            end loop; -- S in Iterate (Cache (Stone))
+         else
+            for S in Iterate (Cache (Stone)) loop
+               Result := @ +
+                 Count_Stones (Key (S), Cache, Level - 1) * Element (S);
+            end loop; -- S in Iterate (Cache (Stone))
+         end if; -- Level = 0
+         return Result;
+      end Count_Stones;
+
+      Result : Long_Natural := 0;
+      Cache : Caches.Map := Caches.Empty_Map;
+
+   begin -- Blink_75
+      for S in Iterate (Stone_Line) loop
+         Result := @ + Count_Stones (Element (S), Cache);
+      end loop; -- S in Iterate (Stone_Line)
+      Put_Line ("Cache Keys:" & Length (Cache)'Img);
+      return Result;
+   end Blink_75;
+
    Stone_Line :Stone_Lines.List;
 
 begin -- December_11
@@ -80,6 +149,7 @@ begin -- December_11
    end loop; -- B in Blinks
    Put_Line ("Part one:" & Length (Stone_Line)'Img);
    DJH.Execution_Time.Put_CPU_Time;
-   Put_Line ("Part two:");
+   Read_Input (Stone_Line);
+   Put_Line ("Part two:" & Blink_75 (Stone_Line)'Img);
    DJH.Execution_Time.Put_CPU_Time;
 end December_11;
