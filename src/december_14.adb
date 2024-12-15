@@ -6,6 +6,9 @@ with Ada.Strings.Maps; use Ada.Strings.Maps;
 with Ada.Strings.Unbounded; use Ada.Strings.Unbounded;
 with Ada.Containers; use Ada.Containers;
 with Ada.Containers.Doubly_Linked_Lists;
+with Ada.Containers.Ordered_Maps;
+with Ada.Containers.Synchronized_Queue_Interfaces;
+with Ada.Containers.Unbounded_Synchronized_Queues;
 with DJH.Execution_Time; use DJH.Execution_Time;
 
 procedure December_14 is
@@ -101,6 +104,8 @@ procedure December_14 is
 
       type Limits is array (Quadrents) of Limit_Ranges;
 
+
+
       function Count_Robots (Robot_List : in Robot_Lists. List;
                              Quadrent : Quadrents;
                              Limit : in Limits) return Natural is
@@ -152,6 +157,7 @@ procedure December_14 is
       subtype X_Coordinates is Ordinates range Origin.X .. X_Limit;
       subtype Y_Coordinates is Ordinates range Origin.Y .. Y_Limit;
 
+
       Screen_Buffer : array (X_Coordinates, Y_Coordinates) of Character :=
         (others => (others => ' '));
 
@@ -172,20 +178,44 @@ procedure December_14 is
                    X_Limit, Y_Limit : in Ordinates;
                    Ticks : out Positive) is
 
-      -- Found by saving every image for 101 * 103 Ticks to a text file and
-      -- then searching with a test editor for ##########. This needs to be
-      -- revisited for a general solution. Looking for a maximal clump at the
-      -- centre of the screen would work for my input.
+      --     #
+      --    ###
+      --   #####
+      --     #
+      -- Above is a minimal Christmas Tree? it consists of 10 contiguous pixels,
+      -- The search will display all clumps of ten or more pixels.
 
-      Tree_Top : constant Coordinates := ((Origin.X + X_Limit) /2, Origin.Y);
+      package Screen_Buffers is new
+        Ada.Containers.Ordered_Maps (Coordinates, Boolean);
+      use Screen_Buffers;
+
+      package Queue_Interface is new
+        Ada.Containers.Synchronized_Queue_Interfaces (Coordinates);
+      use Queue_Interface;
+
+      package Queues is new
+        Ada.Containers.Unbounded_Synchronized_Queues (Queue_Interface);
+      use Queues;
+
+      Screen_Buffer : Screen_Buffers.Map;
+      Sc : Screen_Buffers.Cursor;
+      Tree_Clump : constant Natural := 10;
+      Clump : Positive;
+      Current, Test : Coordinates;
 
    begin -- Tree
       Ticks := 1;
       loop -- one tick
+         Clear (Screen_Buffer)
          for R in Iterate (Robot_List) loop
             Update (Robot_List (R), X_Limit, Y_Limit);
+            Include (Screen_Buffer, Element (R).Position, False);
          end loop; -- R in Iterate (Robot_List)
-         exit when Ticks = 7569;
+                   -- search Screen_Buffer for clumps
+         Sc := First (Screen_Buffer);
+         while Sc /= Screen_Buffer.No_Element and then not Element Sc) loop
+            Clump := 1;
+         exit when Ticks = 101 * 103; -- robot's full cycle length
          Ticks := @ + 1;
       end loop; -- one tick
    end Tree;
