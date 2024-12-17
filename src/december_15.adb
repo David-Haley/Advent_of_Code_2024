@@ -217,6 +217,7 @@ procedure December_15 is
          end loop; -- X in Ordinates range Origin.X .. Max_X
          New_Line;
       end loop; -- Y in Oordinates range Origin.Y .. Max_Y
+      New_Line;
    end Put;
 
    procedure Put ( Map : in out Maps_2.Map;
@@ -252,6 +253,7 @@ procedure December_15 is
          end loop; -- X in Ordinates range Origin.X .. Max_X
          New_Line;
       end loop; -- Y in Oordinates range Origin.Y .. Max_Y
+      New_line;
    end Put;
 
    procedure Follow_Plan (Map : in out Maps.Map;
@@ -397,13 +399,13 @@ procedure December_15 is
                      Map (Next) := Right_Box;
                   else
                      raise Program_Error with "Expected free space at" &
-                       Next'Img;
+                       Next'Img & " (Right_Box)";
                   end if; -- Map (Next) = Free
                   if Map (Current) = Right_Box then
                      Map (Current) := Free;
                   else
                      raise Program_Error with "Expected Right_Box at" &
-                       Current'Img;
+                       Current'Img & " (Right_Box)";
                   end if; -- Map (Current) = Left_Box
                end if; -- Can_Move
             when Wall =>
@@ -411,6 +413,8 @@ procedure December_15 is
          end case; -- Map (Current)
          return Can_Move;
       end Move;
+
+      Move_Count : Natural := 0;
 
    begin -- Follow_Plan
       for C in Iterate (Command_List) loop
@@ -423,8 +427,22 @@ procedure December_15 is
                  Coordinates'Image (Robot_Position + Increment (Element (C)));
             end if; -- Map (Robot_Position + Increment (Element (C))) = Free
          end if; -- Move (Map, Robot_Position + Increment (Element (C)), ...
+         --  Put ("Move" & Move_Count'Img & ": ");
+         --  case Element (C) is
+         --     when Up =>
+         --        Put_Line ("^");
+         --     when Down =>
+         --        Put_Line ("v");
+         --     when Left =>
+         --        Put_line ("<");
+         --     when Right =>
+         --        Put_Line (">");
+         --  end case;
+         --  Put (Map, Robot_Position);
+         Move_Count := @ + 1;
       end loop; -- C in Iterate (Command_List)
    end Follow_Plan;
+
 
    Map : Maps.Map;
    Map_2 : Maps_2.Map;
@@ -443,6 +461,7 @@ begin -- December_15
    Put_Line ("Part one:" & Sum'Img);
    DJH.Execution_Time.Put_CPU_Time;
    Read_Input (Map_2, Command_List, Robot_Position_2);
+   Put_Line ("Part two commands" & Length (Command_List)'Img);
    Follow_Plan (Map_2, Command_List, Robot_Position_2);
    Sum := 0;
    for M in Iterate (Map_2) loop
