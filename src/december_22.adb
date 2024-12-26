@@ -40,56 +40,7 @@ procedure December_22 is
              (Left (2) = Right (2) and (Left (3) < Right (3) or else
                   (Left (3) = Right (3) and Left (4) < Right (4)))))));
 
-   --  function "<" (Left, Right : Run_Arrays) return Boolean is
-   --
-   --     L, R : Integer := 0;
-   --     Add : constant Integer := 0 - Differences'First;
-   --     Mul : constant Integer := Differences'Last - Differences'First + 1;
-   --
-   --  begin -- "<"
-   --     L := (((Left (1) + Add) * Mul + Left (2) + Add) * Mul +
-   --           Left (3) + Add) * Mul + Left (4) + Add;
-   --     R := (((Right (1) + Add) * Mul + Right (2) + Add) * Mul +
-   --               Right (3) + Add) * Mul + Right (4) + Add;
-   --     return L < R;
-   --  end "<";
-
-   procedure Test_Less is
-
-      package Run_Stores is new Doubly_Linked_Lists (Run_Arrays);
-      use Run_Stores;
-
-      Run : Run_Arrays;
-      Run_Store : Run_Stores.List := Run_Stores.Empty_List;
-      Count : Natural := 0;
-      Always : Boolean := True;
-      Never : Boolean := False;
-      R : Run_Stores.Cursor;
-
-   begin -- Test_Less
-      for I in Differences loop
-         for J in Differences loop
-            for K in Differences loop
-               for L in Differences loop
-                  Run (1) := I;
-                  Run (2) := J;
-                  Run (3) := K;
-                  Run (4) := L;
-                  Append (Run_Store, Run);
-               end loop;
-            end loop;
-         end loop;
-      end loop;
-      for L in Iterate (Run_Store) loop
-         R := Next (L);
-         while R /= Run_Stores.No_Element loop
-            Always := Always and Element (L) < Element (R);
-            Never := Never or Element (R) < Element (L);
-            Next (R);
-         end loop;
-      end loop;
-      Put_Line ("Always " & Always'Img & " Never " & Never'Img);
-   end Test_Less;
+   pragma Inline_Always ("<");
 
    package Run_Maps is new
      Ada.Containers.Ordered_Maps (Run_Arrays, Prices);
@@ -158,15 +109,17 @@ procedure December_22 is
       return Result;
    end Last_Number;
 
-   procedure Build_Buyer_List (Number_List : in Number_Lists.List;
-                               Buyer_List : out Buyer_Lists.List) is
+   procedure Find_Runs (Number_List : in Number_Lists.List;
+                        Buyer_List : out Buyer_Lists.List;
+                        All_Runs : out Run_Sets.Set) is
 
       Buyer_Element : Buyer_Elements;
       Current, Previous : Secret_Numbers;
       Run_Array : Run_Arrays;
 
-   begin -- Build_Buyer_List
+   begin -- Find_Runs
       Clear (Buyer_List);
+      Clear (All_Runs);
       for B in Iterate (Number_List) loop
          Previous := Element (B);
          for P in Price_Indices loop
@@ -188,34 +141,19 @@ procedure December_22 is
               Buyer_Element.Price_Array (P).Price > 0 then
                Insert (Buyer_Element.Run_Map, Run_Array,
                        Buyer_Element.Price_Array (P).Price);
+               Include (All_Runs, Run_Array);
             end if; -- not Contains (Buyer_Element.Run_Map, Run_Array) and ...
          end loop; -- P in Price_Indices range 4 .. Prices_Per_Day
          Append (Buyer_List, Buyer_Element);
       end loop; -- B in Iterate (Number_List)
-   end Build_Buyer_List;
-
-   procedure Find_All_Runs (Buyer_List : in Buyer_Lists.List;
-                            All_Runs : out Run_Sets.Set) is
-
-   begin -- Find_All_Runs
-      Put_Line ("Buyers" & Length (Buyer_List)'Img);
-      Clear (All_Runs);
-      for B in Iterate (Buyer_List) loop
-         Put_Line ("Run" & Length (Element (B).Run_Map)'Img);
-         Put_Line (Element (B).Run_Map'Img);
-         for R in Iterate (Element (B).Run_Map) loop
-            Put_Line (Element (R)'Img);
-            Include (All_Runs, Key (R));
-         end loop; -- R in Iterate (Element (B).Run_Map)
-      end loop; -- B in Iterate (Buyer_List)
-      Put_Line ("All_Runs" & Length (All_Runs)'Img);
-   end Find_All_Runs;
+   end Find_Runs;
 
    function Largest_Sum (Buyer_List : in Buyer_Lists.List;
                          All_Runs : in Run_Sets.Set) return Natural is
 
       Result : Natural := 0;
       Sum : Natural;
+      Count : Positive := 1;
 
    begin -- Largest_Sum
       for R in Iterate (All_Runs) loop
@@ -228,6 +166,12 @@ procedure December_22 is
          if Sum > Result then
             Result := Sum;
          end if; -- Sum > Result
+         if Count mod 500 = 0 then
+            Put ("Runs checked:" & Count'Img & " Largest sum:" & Result'Img &
+                " ");
+            DJH.Execution_Time.Put_CPU_Time;
+         end if; -- Count mod 500 = 0
+         Count := @ + 1;
       end loop; -- R in Iterate (All_Runs)
       return Result;
    end Largest_Sum;
@@ -238,16 +182,13 @@ procedure December_22 is
    All_Runs : Run_Sets.Set;
 
 begin -- December_22
-   --  Read_Input (Number_List);
-   --  for S in Iterate (Number_List) loop
-   --     Sum := @ + Last_Number (Element (S));
-   --  end loop; -- S in Iterate (Nunber_List)
-   --  Put_Line ("Part one:" & Sum'Img);
-   --  DJH.Execution_Time.Put_CPU_Time;
-   --  Build_Buyer_List (Number_List, Buyer_List);
-   --  Find_All_Runs (Buyer_List, All_Runs);
-   --  Put_Line (Length (All_Runs)'Img);
-   --  Put_Line ("Part two:" & Largest_Sum (Buyer_List, All_Runs)'Img);
-   Test_Less;
+   Read_Input (Number_List);
+   for S in Iterate (Number_List) loop
+      Sum := @ + Last_Number (Element (S));
+   end loop; -- S in Iterate (Nunber_List)
+   Put_Line ("Part one:" & Sum'Img);
+   DJH.Execution_Time.Put_CPU_Time;
+   Find_Runs (Number_List, Buyer_List, All_Runs);
+   Put_Line ("Part two:" & Largest_Sum (Buyer_List, All_Runs)'Img);
    DJH.Execution_Time.Put_CPU_Time;
 end December_22;
