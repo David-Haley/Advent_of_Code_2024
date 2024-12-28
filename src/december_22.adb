@@ -2,8 +2,8 @@ with Ada.Text_IO; use Ada.Text_IO;
 with Ada.Command_Line; use Ada.Command_Line;
 with Ada.Containers; use Ada.Containers;
 with Ada.Containers.Doubly_Linked_Lists;
-with Ada.Containers.Ordered_Maps;
-with Ada.Containers.Ordered_Sets;
+with Ada.Containers.Hashed_Maps;
+with Ada.Containers.Hashed_Sets;
 with Interfaces; use Interfaces;
 with DJH.Execution_Time; use DJH.Execution_Time;
 
@@ -34,19 +34,38 @@ procedure December_22 is
    subtype Change_Indices is Positive range 1 .. 4;
    type Run_Arrays is array (Change_Indices) of Differences;
 
-   function "<" (Left, Right : Run_Arrays) return Boolean is
-     (Left (1) < Right (1) or else
-          (Left (1) = Right (1) and (Left (2) < Right (2) or else
-             (Left (2) = Right (2) and (Left (3) < Right (3) or else
-                  (Left (3) = Right (3) and Left (4) < Right (4)))))));
+   function Hash (Element : Run_Arrays) return Hash_Type is
 
-   pragma Inline_Always ("<");
+      Add : constant Integer := 0 - Differences'First;
+      Shift : constant Natural := 5;
+      Result : Unsigned_32;
+
+   begin -- Hash
+      Result := Unsigned_32 (Element (1) + Add);
+      Result := Shift_Left (Result, Shift);
+      Result := @ or Unsigned_32 (Element (2) + Add);
+      Result := Shift_Left (Result, Shift);
+      Result := @ or Unsigned_32 (Element (3) + Add);
+      Result := Shift_Left (Result, Shift);
+      Result := @ or Unsigned_32 (Element (4) + Add);
+      Result := Shift_Left (Result, Shift);
+      return  Hash_Type (Result);
+   end Hash;
+
+   function Equivalent (Left, Right : Run_Arrays) return Boolean is
+     (Hash (Left) = Hash (Right));
 
    package Run_Maps is new
-     Ada.Containers.Ordered_Maps (Run_Arrays, Prices);
+     Ada.Containers.Hashed_Maps (Key_Type => Run_Arrays,
+                                 Element_Type => Prices,
+                                 Hash => Hash,
+                                 Equivalent_Keys => Equivalent);
    use Run_Maps;
 
-   package Run_Sets is new Ada.Containers.Ordered_Sets (Run_Arrays);
+   package Run_Sets is new
+     Ada.Containers.Hashed_Sets (Element_Type => Run_Arrays,
+                                 Hash => Hash,
+                                 Equivalent_Elements => Equivalent);
    use Run_Sets;
 
    type Price_Arrays is array (Price_Indices) of Price_Element;
@@ -168,7 +187,7 @@ procedure December_22 is
          end if; -- Sum > Result
          if Count mod 500 = 0 then
             Put ("Runs checked:" & Count'Img & " Largest sum:" & Result'Img &
-                " ");
+                   " ");
             DJH.Execution_Time.Put_CPU_Time;
          end if; -- Count mod 500 = 0
          Count := @ + 1;
