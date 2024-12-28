@@ -7,8 +7,9 @@ with Ada.Strings.Unbounded; use Ada.Strings.Unbounded;
 with Ada.Strings.Maps; use Ada.Strings.Maps;
 with Ada.Containers; use Ada.Containers;
 with Ada.Containers.Doubly_Linked_Lists;
-with Ada.Containers.Indefinite_Ordered_Maps;
-with Ada.Containers.Indefinite_Doubly_Linked_Lists;
+with Ada.Containers.Ordered_Maps;
+with Ada.Containers.Ordered_Sets;
+with Ada.Containers.Doubly_Linked_Lists;
 with DJH.Execution_Time; use DJH.Execution_Time;
 
 procedure December_19 is
@@ -19,15 +20,23 @@ procedure December_19 is
      Ada.Containers.Doubly_Linked_Lists (Unbounded_String);
    use Towel_Lists;
 
-   package Pattern_Lists is new
-     Ada.Containers.Indefinite_Doubly_Linked_Lists (String);
-   use Pattern_Lists;
+   type Sequence_Keys is record
+      Length : Positive;
+      Pattern : Unbounded_String;
+   end record; --  Sequence_Keys
 
-   package Caches is new
-     Ada.Containers.Indefinite_Ordered_Maps (String, Positive);
-   use Caches;
+   function Before (Left, Right : Unbounded_String) return Boolean is
+     (Length (Left) > Length (Right) or
+        (Length (Left) = Length (Right) and Left < Right));
+    -- N.B. the intended sort order is to return longer keys before shorter keys.
 
-   procedure Read_Input (Patterns : out Pattern_Lists.List;
+   package Sequence_Maps is new
+     Ada.Containers.Ordered_Maps (Key_Type => Unbounded_String,
+                                  Element_Type => Natural,
+                                 "<" => Before);
+   use Sequence_Maps;
+
+   procedure Read_Input (Patterns : out Sequence_Maps.Map;
                          Designs : out Towel_Lists.List) is
 
       Input_File : File_Type;
@@ -47,7 +56,7 @@ procedure December_19 is
       Start_At := 1;
       while Start_At < Length (Text) loop
          Find_Token (Text, Colour_Set, Start_At, Inside, First, Last);
-         Append (Patterns, Slice (Text, First, Last));
+         Insert (Patterns, (Unbounded_Slice (Text, First, Last)), 0);
          Start_At := Last + 1;
       end loop; -- Start_At < Lenght (Text)
       skip_Line (Input_File);
@@ -59,26 +68,26 @@ procedure December_19 is
    end Read_Input;
 
    function Is_Valid (Design : in Unbounded_String;
-                      Patterns : in Pattern_Lists.List) return Boolean is
+                      Patterns : in Sequence_Maps.Map) return Boolean is
 
       Matches : Boolean := False;
-      Pc : Pattern_Lists.Cursor := First (Patterns);
+      Pc : Sequence_Maps.Cursor := First (Patterns);
 
    begin -- Is_Valid
-      while not Matches and Pc /= Pattern_Lists.No_Element loop
-         Matches := Index (Design, Element (Pc)) = 1;
-         if Matches and then Length (Design) > Element (Pc)'Length then
+      while not Matches and Pc /= Sequence_Maps.No_Element loop
+         Matches := Index (Design, To_String (Key (Pc))) = 1;
+         if Matches and then Length (Design) > Length (Key (Pc)) then
             Matches := @ and
-              Is_Valid (Delete (Design, 1, Element (Pc)'Length),
+              Is_Valid (Delete (Design, 1, Length (Key (Pc))),
                         Patterns);
-         end if; -- Matches and then Length (Design) > Element (Pc)'Length
+         end if; -- Matches and then Length (Design) > Length (Key (Pc))
          Next (Pc);
-      end loop; -- not Matches and Pc /= Pattern_Lists.No_Element
+      end loop; -- not Matches and Pc /= Sequence_Maps.No_Element
       return Matches;
    end Is_Valid;
 
    function Count_Valid (Designs : in Towel_Lists.List;
-                         Patterns : in Pattern_Lists.List) return Natural is
+                         Patterns : in Sequence_Maps.Map) return Natural is
 
       Count : Natural := 0;
 
@@ -91,85 +100,104 @@ procedure December_19 is
       return Count;
    end Count_Valid;
 
-   procedure Build_Cache (Pattern_List : in Pattern_Lists.List;
-                          Cache : out Caches.Map) is
+   procedure Update_Patterns (Patterns : in out Sequence_Maps.Map) is
 
-      function Combinations (Design : in Unbounded_String;
-                             Patterns : in Pattern_Lists.List) return Natural is
+      -- Store the results for the number of combinations in each of the
+      -- patterns and the set of other patterns that are contained;
 
-         Count : Natural := 0;
+      procedure Combinations (Design : in Unbounded_String;
+                              Patterns : in Sequence_Maps.Map;
+                              Count : out Natural) is
+
+         Returned_Count : Natural;
 
       begin -- Combinations
+         Count := 0;
          for P in Iterate (Patterns) loop
-            if To_String (Design) = Element (P) then
+            if Design = Key (P) then
                Count := @ + 1;
-            elsif Index (Design, Element (P)) = 1 then
-               Count := @ + 1 *
-                 Combinations (Delete (Design, 1, Element (P)'Length),
-                               Patterns);
-            end if; -- To_String (Design) = Element (P)
+            elsif Index (Design, To_String (Key (P))) = 1 then
+               Combinations (Delete (Design, 1, Length (Key (P))), Patterns,
+                             Returned_Count);
+               Count := @ + Returned_Count;
+            end if; -- Index (Design, To_String (Key (P))) = 1
          end loop; -- P in Iterate (Patterns)
-         return Count;
       end Combinations;
 
-   begin -- Build_Cache
-      Clear (Cache);
-      for P in Iterate (Pattern_List) loop
-         Insert (Cache, Element (P),
-                 Combinations (To_Unbounded_String (Element (P)),
-                   Pattern_list));
-      end loop; -- P in Iterate (Pattern_List)
-   end Build_Cache;
+      Count : Natural;
+
+   begin -- Update_Patterns
+      for P in Iterate (Patterns) loop
+         Combinations (Key (P), Patterns, Count);
+         Patterns (P) := Count;
+      end loop; -- P in Iterate (Paterns)
+   end Update_Patterns;
 
    function Count_Combinations (Designs : in Towel_Lists.List;
-                                Patterns : in Pattern_Lists.List;
-                                Cache : in Caches.Map)
+                                Patterns : in Sequence_Maps.Map)
                                 return Natural is
 
+      Cache_Length : constant Positive:= Length (First_Key (Patterns));
+
       function Combinations (Design : in Unbounded_String;
-                             Cache : in Caches.Map) return Natural is
+                             Patterns : in Sequence_Maps.Map;
+                             Cache : in out Sequence_Maps.Map) return Natural is
+
+         -- Has a side effect of adding seqiences to the cache.
 
          Count : Natural := 0;
 
       begin -- Combinations
-         for C in Iterate (Cache) loop
-            if To_String (Design) = Key (C) then
-               Count := @ + Element (C);
-            elsif Index (Design, Key (C)) = 1 then
-               Count := @ + Element (C) *
-                 Combinations (Delete (Design, 1, Key (C)'Length),
-                               Cache);
-            end if; -- To_String (Design) = Element (P)
-         end loop; -- P in Iterate (Patterns)
-         Put_Line (Design'Img & Count'Img);
+         --  Put_Line ("Entry """ & Design & """");
+         if Contains (Cache, Design) then
+            --  Put_Line ("Cache match");
+            Count := Cache (Design);
+         elsif Contains (Patterns, Design) then
+            --  Put_Line ("Pattern match");
+            Count := Patterns (Design);
+         else
+            for P in Iterate (Patterns) loop
+               if Index (Design, To_String (Key (P))) = 1 then
+                  --  Put_Line ("Match at start """ & Key (P) & """");
+                  Count := @ +
+                    Combinations (Delete (Design, 1, Length (Key (P))),
+                                  Patterns, Cache);
+               end if; -- Index (Design, To_String (Key (P))) = 1 ...
+            end loop; -- P in Iterate (Patterns)
+            if Length (Design) <= Cache_Length then
+               Insert (Cache, Design, Count);
+            end if; -- Length (Design) <= Cache_Length
+         end if; -- Contains (Cache, Design)
+         --  Put_Line ("Exit" & Count'Img);
          return Count;
       end Combinations;
 
-      Count : Natural := 0;
+      Cache : Sequence_Maps.Map;
+      Total : Natural := 0;
+      Count : Natural;
 
    begin -- Count_Combinations
       for D in Iterate (Designs) loop
-         Put_Line ("Valid """  & Element (D) & """");
          if Is_Valid (Element (D), Patterns) then
-            Put_Line ("Count """ & Element (D) & """");
-            Count := @ + Combinations (Element (D), Cache);
-            Put (Element (D));
+            Count := Combinations (Element (D), Patterns, Cache);
+            Total := @ + Count;
+            Put ("Current Design """ & Element (D) & """ Combinations" &
+                Count'Img & " ");
             DJH.Execution_Time.Put_CPU_Time;
          end if; -- Is_Valid (Element (D), Patterns)
       end loop; -- D in Iterate (Designs)
-      return Count;
+      Put_Line ("Cache Size:" & Length (Cache)'Img);
+      return Total;
    end Count_Combinations;
 
-   Patterns : Pattern_Lists.List;
    Designs : Towel_Lists.List;
-   Cache : Caches.Map;
+   Patterns : Sequence_Maps.Map;
 
 begin -- December_19
    Read_Input (Patterns, Designs);
    Put_Line ("Part one:" & Count_Valid (Designs, Patterns)'Img);
    DJH.Execution_Time.Put_CPU_Time;
-   Build_Cache (Patterns, Cache);
-   Put_Line (Cache'Img);
-   Put_Line ("Part two:" & Count_Combinations (Designs, Patterns, Cache)'Img);
+   Update_Patterns (Patterns);
+   Put_Line ("Part two:" & Count_Combinations (Designs, Patterns)'Img);
    DJH.Execution_Time.Put_CPU_Time;
 end December_19;
