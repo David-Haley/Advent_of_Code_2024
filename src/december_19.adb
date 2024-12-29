@@ -16,6 +16,8 @@ procedure December_19 is
 
    Colour_Set : constant Character_Set := To_Set ("wubrg");
 
+   subtype Long_Natural is Long_Long_Integer range 0 .. Long_Long_Integer'Last;
+
    package Towel_Lists is new
      Ada.Containers.Doubly_Linked_Lists (Unbounded_String);
    use Towel_Lists;
@@ -27,13 +29,13 @@ procedure December_19 is
 
    function Before (Left, Right : Unbounded_String) return Boolean is
      (Length (Left) > Length (Right) or
-        (Length (Left) = Length (Right) and Left < Right));
-    -- N.B. the intended sort order is to return longer keys before shorter keys.
+          (Length (Left) = Length (Right) and Left < Right));
+   -- N.B. the intended sort order is to return longer keys before shorter keys.
 
    package Sequence_Maps is new
      Ada.Containers.Ordered_Maps (Key_Type => Unbounded_String,
-                                  Element_Type => Natural,
-                                 "<" => Before);
+                                  Element_Type => Long_Natural,
+                                  "<" => Before);
    use Sequence_Maps;
 
    procedure Read_Input (Patterns : out Sequence_Maps.Map;
@@ -107,9 +109,9 @@ procedure December_19 is
 
       procedure Combinations (Design : in Unbounded_String;
                               Patterns : in Sequence_Maps.Map;
-                              Count : out Natural) is
+                              Count : out Long_Natural) is
 
-         Returned_Count : Natural;
+         Returned_Count : Long_Natural;
 
       begin -- Combinations
          Count := 0;
@@ -124,7 +126,7 @@ procedure December_19 is
          end loop; -- P in Iterate (Patterns)
       end Combinations;
 
-      Count : Natural;
+      Count : Long_Natural;
 
    begin -- Update_Patterns
       for P in Iterate (Patterns) loop
@@ -135,17 +137,16 @@ procedure December_19 is
 
    function Count_Combinations (Designs : in Towel_Lists.List;
                                 Patterns : in Sequence_Maps.Map)
-                                return Natural is
-
-      Cache_Length : constant Positive:= Length (First_Key (Patterns));
+                                return Long_Natural is
 
       function Combinations (Design : in Unbounded_String;
                              Patterns : in Sequence_Maps.Map;
-                             Cache : in out Sequence_Maps.Map) return Natural is
+                             Cache : in out Sequence_Maps.Map)
+                             return Long_Natural is
 
          -- Has a side effect of adding seqiences to the cache.
 
-         Count : Natural := 0;
+         Count : Long_Natural := 0;
 
       begin -- Combinations
          --  Put_Line ("Entry """ & Design & """");
@@ -164,29 +165,23 @@ procedure December_19 is
                                   Patterns, Cache);
                end if; -- Index (Design, To_String (Key (P))) = 1 ...
             end loop; -- P in Iterate (Patterns)
-            if Length (Design) <= Cache_Length then
-               Insert (Cache, Design, Count);
-            end if; -- Length (Design) <= Cache_Length
+            Insert (Cache, Design, Count);
          end if; -- Contains (Cache, Design)
          --  Put_Line ("Exit" & Count'Img);
          return Count;
       end Combinations;
 
       Cache : Sequence_Maps.Map;
-      Total : Natural := 0;
-      Count : Natural;
+      Total : Long_Natural := 0;
 
    begin -- Count_Combinations
       for D in Iterate (Designs) loop
+         Clear (Cache);
          if Is_Valid (Element (D), Patterns) then
-            Count := Combinations (Element (D), Patterns, Cache);
-            Total := @ + Count;
-            Put ("Current Design """ & Element (D) & """ Combinations" &
-                Count'Img & " ");
-            DJH.Execution_Time.Put_CPU_Time;
+            Total := @
+              + Long_Natural (Combinations (Element (D), Patterns, Cache));
          end if; -- Is_Valid (Element (D), Patterns)
       end loop; -- D in Iterate (Designs)
-      Put_Line ("Cache Size:" & Length (Cache)'Img);
       return Total;
    end Count_Combinations;
 
