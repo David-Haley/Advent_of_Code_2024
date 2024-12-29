@@ -2,6 +2,7 @@ with Ada.Text_IO; use Ada.Text_IO;
 with Ada.Command_Line; use Ada.Command_Line;
 with Ada.Text_IO.Unbounded_IO; use Ada.Text_IO.Unbounded_IO;
 with Ada.Strings; use Ada.Strings;
+with Ada.Strings.Fixed; use Ada.Strings.Fixed;
 with Ada.Strings.Unbounded; use Ada.Strings.Unbounded;
 with Ada.Strings.Maps; use Ada.Strings.Maps;
 with Ada.Containers; use Ada.Containers;
@@ -56,6 +57,15 @@ procedure December_24 is
    package Input_Maps is new
      Ada.Containers.Ordered_Maps (Names, Inputs);
    use Input_Maps;
+
+   type Stimuli is record
+      Logic_Drive : Logic_Drives;
+      Gate_Name : Names;
+      Input_Index : Input_Indices;
+   end record; -- Stimuli
+
+   package Trace_Stores is new Ada.Containers.Doubly_Linked_Lists (Stimuli);
+   use Trace_Stores;
 
    subtype Output_Values is Unsigned_64;
    subtype Bit_Numbers is Natural range 0 .. 63;
@@ -140,13 +150,8 @@ procedure December_24 is
 
    procedure Evaluate (Input_List : in Input_Lists.List;
                        Input_Map : in Input_Maps.Map;
-                       Gate_Store :  in out Gate_Stores.Map) is
-
-      type Stimuli is record
-         Logic_Drive : Logic_Drives;
-         Gate_Name : Names;
-         Input_Index : Input_Indices;
-      end record; -- Stimuli
+                       Gate_Store :  in out Gate_Stores.Map;
+                       Trace_Store : out Trace_Stores.List) is
 
       package Q_I is new
         Ada.Containers.Synchronized_Queue_Interfaces (Stimuli);
@@ -169,6 +174,7 @@ procedure December_24 is
          end loop; -- T in Iterate (Input_Map (Element (I)).Target_List)
          while Queue.Current_Use > 0 loop
             Queue.Dequeue (Stimulus);
+            Append (Trace_Store, Stimulus);
             Gate_Store (Stimulus.Gate_Name).Input_Array (Stimulus.Input_Index)
               := Stimulus.Logic_Drive;
             if Gate_Store (Stimulus.Gate_Name).Input_Array (In_Left) /=
@@ -233,15 +239,198 @@ procedure December_24 is
       return Result;
    end Output_Register;
 
+   procedure Test_Adder (Input_Map : in out Input_Maps.Map;
+                         Gate_Store : in out Gate_Stores.Map) is
+
+      -- Test sixteen cases of adding Xn, Xn+1, Yn and Yn+1,
+      -- checking that X + Y = Z;
+
+      procedure Reset (Gate_Store : in out Gate_Stores.Map) is
+
+      begin -- Reset
+         for G in Iterate (Gate_Store) loop
+            Gate_Store (G).Input_Array := (Undefined, Undefined);
+            Gate_Store (G).Out_State := Undefined;
+         end loop; -- G in Iterate (Gate_Store)
+      end Reset;
+
+      function Input_Register (Input_Map : in Input_Maps.Map;
+                               Register : in Character)
+                               return Output_Values is
+
+         Result : Output_Values := 0;
+         Mask : constant Output_Values := 1;
+
+      begin -- Input_Register
+         for I in Iterate (Input_Map) loop
+            if Element (Key (I), 1) = Register and then
+              Element (I).Out_State = 1 then
+               Result := @ or
+                 Shift_Left (Mask, Bit_Numbers'Value (Slice (Key (I), 2, 3)));
+            end if; -- Element (Key (I), 1) = Register
+         end loop; -- I in Iterate (Input_Map)
+         return Result;
+      end Input_Register;
+
+      function Find_MSB (Input_Map : in Input_Maps.Map) return Bit_Numbers is
+
+         MSB : Bit_Numbers := 0;
+
+      begin -- Find_MSB
+         for I in Iterate (Input_Map) loop
+            if Element (Key (I), 1) = 'x' and then
+              Bit_Numbers'Value (Slice (Key (I), 2, 3)) > MSB then
+               MSB := Bit_Numbers'Value (Slice (Key (I), 2, 3));
+            end if; -- Element (Key (I), 1) = 'x' and then ...
+         end loop; -- I in Iterate (Input_Map)
+         return MSB;
+      end Find_MSB;
+
+      function Build_Name (Base_Name : in character;
+                           Number : in Bit_Numbers)
+                              return Unbounded_String is
+
+      begin -- Build_Name
+         if NuMber < 10 then
+            return To_Unbounded_String (Base_Name & "0" &
+                                          Trim (Number'Img, Left));
+         else
+            return To_Unbounded_String (Base_Name & Trim (Number'Img, Left));
+         end if; -- Number < 10
+      end Build_Name;
+
+      procedure Set_Registers (N : in Bit_Numbers;
+                               Xn, Xn_1, Yn, Yn_1 : in Logic_Drives;
+                               MSB : in Bit_Numbers;
+                               Input_Map : in out Input_Maps.Map) is
+
+      begin -- Set_Registers
+         for I in Bit_Numbers range 0 .. MSB loop
+            Input_Map (Build_Name ('x', I)).Out_State := 0;
+            Input_Map (Build_Name ('y', I)).Out_State := 0;
+         end loop; -- N in Bit_Numbers range 0 .. MSB
+         -- set x and y registers to 0;
+         Input_Map (Build_Name ('x', N)).Out_State := Xn;
+         Input_Map (Build_Name ('x', N + 1)).Out_State := Xn_1;
+         Input_Map (Build_Name ('y', N)).Out_State := Yn;
+         Input_Map (Build_Name ('y', N + 1)).Out_State := Yn_1;
+         -- Test bits set
+      end Set_Registers;
+
+      procedure Put (Test : in Bit_Numbers;
+                     Xn, Xn_1, Yn, Yn_1 : in Logic_Drives;
+                     Trace_Store : in Trace_Stores.List;
+                     X, Y, Expected, Actual : in Output_Values;
+                     MSB : in Bit_Numbers) is
+
+         package Out_IO is new Ada.Text_IO.Modular_IO (Output_Values);
+         use Out_IO;
+
+         Base_Name : constant String := "december_24_test_";
+         Drive_State : constant String := "_" & Trim (Xn'Img, Left) &
+           Trim (Xn_1'Img, Left) & Trim (Yn'Img, Left) & Trim (Yn_1'Img, Left);
+         Extension : constant String := ".txt";
+         Output_File : File_Type;
+         Failing_Bits : constant Output_Values := Expected xor Actual;
+         Field_Width : constant Positive := MSB + 4;
+         Base : constant Positive := 2;
+
+      begin -- Put
+         if Test < 10 then
+            Create (Output_File, Out_File, Base_Name & "0" &
+                      Trim (Test'Img, Left) & Drive_State &  Extension);
+         else
+            Create (Output_File, Out_File, Base_Name & Trim (Test'Img, Left) &
+                      Drive_State & Extension);
+         end if; -- Test < 10
+         Put_Line (Output_File, "Testing x and y bits" & Test'Img & " .." &
+                     Bit_Numbers'Image (Test + 1) & " z bits" &
+                     Test'Img & " .." & Bit_Numbers'Image (Test + 2));
+         New_Line (Output_File);
+         for T in Iterate (Trace_Store) loop
+            Put (Output_File, Element (T).Gate_Name & '(' &
+                   Trim (Element (T).Input_Index'Img, Left) & ") :=" &
+                   Element (T).Logic_Drive'Img);
+            if Element (Element (T).Gate_Name, 1) = 'z' then
+               New_Line (Output_File);
+            else
+               Put (Output_File, ", ");
+            end if; -- Element (T).Gate_Name (1) = 'z'
+         end loop; -- T in Iterate (Trace_Store)
+         New_Line (Output_File);
+         Put (Output_File, "           X");
+         Put (Output_File, X, Field_Width, Base);
+         New_Line (Output_File);
+         Put (Output_File, "           Y");
+         Put (Output_File, Y, Field_Width, Base);
+         New_Line (Output_File);
+         Put (Output_File, "Expected   Z");
+         Put (Output_File, Expected, Field_Width, Base);
+         New_Line (Output_File);
+         Put (Output_File, "Actual     Z");
+         Put (Output_File, Actual, Field_Width, Base);
+         New_Line (Output_File);
+         Put (Output_File, "Failing Bits");
+         Put (Output_File, Failing_Bits, Field_Width, Base);
+         New_Line (Output_File);
+         Close (Output_File);
+      end Put;
+
+      MSB : constant Bit_Numbers := Find_MSB (Input_Map);
+      X, Y, Z : Output_Values;
+      Trace_Store : Trace_Stores.List;
+      Input_List : Input_Lists.List := Input_Lists.Empty_List;
+      Pass : Boolean;
+
+   begin -- Test_Adder
+      -- define order in which bits are transmitted.
+      for N in Bit_Numbers range 0 .. MSB loop
+         Append (Input_List, Build_Name ('x', N));
+         Append (Input_List, Build_Name ('y', N));
+      end loop; -- N in Bit_Numbers range 0 .. MSB
+      for N in Bit_Numbers range 0 .. MSB - 1 loop
+         Pass := True;
+         Put ("Test:" & N'Img);
+         for Yn_1 in Logic_Drives loop
+            for Yn in Logic_Drives loop
+               for Xn_1 in Logic_Drives loop
+                  for Xn in Logic_Drives loop
+                     Reset (Gate_Store);
+                     Clear (Trace_Store);
+                     Set_Registers (N, Xn, Xn_1, Yn, Yn_1, MSB, Input_Map);
+                     Evaluate (Input_List, Input_Map, Gate_Store, Trace_Store);
+                     X := Input_Register (Input_Map, 'x');
+                     Y := Input_Register (Input_Map, 'y');
+                     Z := X + Y;
+                     if Z /= Output_Register (Gate_Store) then
+                        Pass := False;
+                        Put (N, Xn, Xn_1, Yn, Yn_1, Trace_Store, X, Y, Z,
+                             Output_Register (Gate_Store), MSB);
+                     end if; -- Z /= Output_Register (Gate_Store)
+                  end loop; -- Xn in Logic_Drives
+               end loop; -- Xn_1 in Logic_Drives
+            end loop; -- Yn in Logic_Drives
+         end loop; -- Yn_1 in Logic_Drives
+         if Pass then
+            Put_Line (" passed");
+         else
+            Put_Line (" failed");
+         end if; -- Pass
+      end loop; -- N in Bit_Numbers range 0 .. MSB - 1
+   end Test_Adder;
+
    Input_List : Input_Lists.List;
    Input_Map : Input_Maps.Map;
    Gate_Store :  Gate_Stores.Map;
+   Trace_Store : Trace_Stores.List := Trace_Stores.Empty_List;
 
 begin -- December_24
    Read_Input (Input_List, Input_Map, Gate_Store);
-   Evaluate (Input_List, Input_Map, Gate_Store);
+   Evaluate (Input_List, Input_Map, Gate_Store, Trace_Store);
+   Clear (Trace_Store);
    Put_Line ("Part one:" & Output_Register (Gate_Store)'Img);
    DJH.Execution_Time.Put_CPU_Time;
+   Test_Adder (Input_Map, Gate_Store);
    Put_Line ("Part two:");
    DJH.Execution_Time.Put_CPU_Time;
 end December_24;
