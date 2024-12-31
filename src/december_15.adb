@@ -2,15 +2,11 @@ with Ada.Text_IO; use Ada.Text_IO;
 with Ada.Command_Line; use Ada.Command_Line;
 with Ada.Text_IO.Unbounded_IO; use Ada.Text_IO.Unbounded_IO;
 with Ada.Strings; use Ada.Strings;
-with Ada.Strings.Maps; use Ada.Strings.Maps;
 with Ada.Strings.Unbounded; use Ada.Strings.Unbounded;
 with Ada.Containers; use Ada.Containers;
 with Ada.Containers.Ordered_Maps;
 with Ada.Containers.Doubly_Linked_Lists;
-with Ada.Containers.Synchronized_Queue_Interfaces;
-with Ada.Containers.Unbounded_Synchronized_Queues;
 with DJH.Execution_Time; use DJH.Execution_Time;
-with DJH.Gcd_Lcm;
 
 procedure December_15 is
 
@@ -264,10 +260,6 @@ procedure December_15 is
                      Current : in Coordinates;
                      Direction : in Directions) return Boolean is
 
-         -- Has side effect of moving Boxes, where possible.
-         -- Has "Defensive programing" checks after return from lower level
-         -- calls to identify any logic errors close to where they occur.
-
          Can_Move : Boolean;
          Next : constant Coordinates := Current + Increment (Direction);
 
@@ -315,131 +307,158 @@ procedure December_15 is
                           Command_List : in Command_Lists.List;
                           Robot_Position : in out Coordinates) is
 
-      function Move (Map : in out Maps_2.Map;
-                     Current : in Coordinates;
-                     Direction : in Directions) return Boolean is
+      function Can_Move (Map : in Maps_2.Map;
+                         Current : in Coordinates;
+                         Direction : in Directions) return Boolean is
 
-         -- Has side effect of moving Boxes, where possible.
-         -- Has "Defensive programing" checks after return from lower level
-         -- calls to identify any logic errors close to where they occur.
-
-         Can_Move : Boolean;
+         Result : Boolean;
          Next, Next_Other, Current_Other : Coordinates;
 
-      begin -- Move
+      begin -- Can_Move
          case Map (Current) is
             when Free =>
-               Can_Move := True;
+               Result := True;
             when Left_Box =>
                Next := Current + Increment (Direction);
                Current_Other := Current + Increment (Right);
                Next_Other := Next + Increment (Right);
                case Direction is
                   when Up | Down =>
-                     Can_Move := Move (Map, Next, Direction) and
-                       Move (Map, Next_Other, Direction);
+                     Result := Can_Move (Map, Next, Direction) and
+                       Can_Move (Map, Next_Other, Direction);
                   when Right =>
-                     Can_Move := Move (Map, Next_Other, Direction);
+                     Result := Can_Move (Map, Next_Other, Direction);
                   when Left =>
                      raise Program_Error with "Left_Box, Left direction";
                end case; -- Direction
-               if Can_Move then
-                  If Map (Next_Other) = Free then
-                     Map (Next_Other) := Right_Box;
-                  else
-                     raise Program_Error with "Expected free space at" &
-                       Next_Other'Img & " (Left_Box Other)";
-                  end if; -- Map (Next_Other) = Free
-                  if Map (Current_Other) = Right_Box then
-                     Map (Current_Other) := Free;
-                  else
-                     raise Program_Error with "Expected Right_Box at" &
-                       Current'Img & "(Left_Box other)";
-                  end if; -- Map (Current) = Left_Box
-                  If Map (Next) = Free then
-                     Map (Next) := Left_Box;
-                  else
-                     raise Program_Error with "Expected free space at" &
-                       Next'Img & " (Left_Box)";
-                  end if; -- Map (Next) = Free
-                  if Map (Current) = Left_Box then
-                     Map (Current) := Free;
-                  else
-                     raise Program_Error with "Expected Left_Box at" &
-                       Current'Img & " (Left_Box)";
-                  end if; -- Map (Current) = Left_Box
-               end if; -- Can_Move
             when Right_Box =>
                Next := Current + Increment (Direction);
                Current_Other := Current + Increment (Left);
                Next_Other := Next + Increment (Left);
                case Direction is
                   when Up | Down =>
-                     Can_Move := Move (Map, Next, Direction) and
-                       Move (Map, Next_Other, Direction);
+                     Result := Can_Move (Map, Next, Direction) and
+                       Can_Move (Map, Next_Other, Direction);
                   when Right =>
                      raise Program_Error with "Right_Box, Right direction";
                   when Left =>
-                     Can_Move := Move (Map, Next_Other, Direction);
+                     Result := Can_Move (Map, Next_Other, Direction);
                end case; -- Direction
-               if Can_Move then
-                  If Map (Next_Other) = Free then
-                     Map (Next_Other) := Left_Box;
-                  else
-                     raise Program_Error with "Expected free space at" &
-                       Next_Other'Img & " (Right_Box Other)";
-                  end if; -- Map (Next_Other) = Free
-                  if Map (Current_Other) = Left_Box then
-                     Map (Current_Other) := Free;
-                  else
-                     raise Program_Error with "Expected Left_Box at" &
-                       Current'Img & "(Right_Box other)";
-                  end if; -- Map (Current) = Left_Box
-                  If Map (Next) = Free then
-                     Map (Next) := Right_Box;
-                  else
-                     raise Program_Error with "Expected free space at" &
-                       Next'Img & " (Right_Box)";
-                  end if; -- Map (Next) = Free
-                  if Map (Current) = Right_Box then
-                     Map (Current) := Free;
-                  else
-                     raise Program_Error with "Expected Right_Box at" &
-                       Current'Img & " (Right_Box)";
-                  end if; -- Map (Current) = Left_Box
-               end if; -- Can_Move
             when Wall =>
-               Can_Move := False;
+               Result := False;
          end case; -- Map (Current)
-         return Can_Move;
-      end Move;
+         return Result;
+      end Can_Move;
 
-      Move_Count : Natural := 0;
+      procedure Move (Map : in out Maps_2.Map;
+                      Current : in Coordinates;
+                      Direction : in Directions) is
+
+         Next, Next_Other, Current_Other : Coordinates;
+
+      begin -- Move
+         case Map (Current) is
+            when Free =>
+               null; -- do nothing, nothing to move
+            when Left_Box =>
+               Next := Current + Increment (Direction);
+               Current_Other := Current + Increment (Right);
+               Next_Other := Next + Increment (Right);
+               case Direction is
+                  when Up | Down =>
+                     Move (Map, Next, Direction);
+                     Move (Map, Next_Other, Direction);
+                  when Right =>
+                     Move (Map, Next_Other, Direction);
+                  when Left =>
+                     raise Program_Error with "Left_Box, Left direction (Move)";
+               end case; -- Direction
+               If Map (Next_Other) = Free then
+                  Map (Next_Other) := Right_Box;
+               else
+                  raise Program_Error with "Expected free space at" &
+                    Next_Other'Img & " (Left_Box Other)";
+               end if; -- Map (Next_Other) = Free
+               if Map (Current_Other) = Right_Box then
+                  Map (Current_Other) := Free;
+               else
+                  raise Program_Error with "Expected Right_Box at" &
+                    Current'Img & "(Left_Box other)";
+               end if; -- Map (Current) = Left_Box
+               If Map (Next) = Free then
+                  Map (Next) := Left_Box;
+               else
+                  raise Program_Error with "Expected free space at" &
+                    Next'Img & " (Left_Box)";
+               end if; -- Map (Next) = Free
+               if Map (Current) = Left_Box then
+                  Map (Current) := Free;
+               else
+                  raise Program_Error with "Expected Left_Box at" &
+                    Current'Img & " (Left_Box)";
+               end if; -- Map (Current) = Left_Box
+            when Right_Box =>
+               Next := Current + Increment (Direction);
+               Current_Other := Current + Increment (Left);
+               Next_Other := Next + Increment (Left);
+               case Direction is
+                  when Up | Down =>
+                     Move (Map, Next, Direction);
+                     Move (Map, Next_Other, Direction);
+                  when Right =>
+                     raise Program_Error with
+                       "Right_Box, Right direction (Move)";
+                  when Left =>
+                     Move (Map, Next_Other, Direction);
+               end case; -- Direction
+               If Map (Next_Other) = Free then
+                  Map (Next_Other) := Left_Box;
+               else
+                  raise Program_Error with "Expected free space at" &
+                    Next_Other'Img & " (Right_Box Other)";
+               end if; -- Map (Next_Other) = Free
+               if Map (Current_Other) = Left_Box then
+                  Map (Current_Other) := Free;
+               else
+                  raise Program_Error with "Expected Left_Box at" &
+                    Current'Img & "(Right_Box other)";
+               end if; -- Map (Current) = Left_Box
+               If Map (Next) = Free then
+                  Map (Next) := Right_Box;
+               else
+                  raise Program_Error with "Expected free space at" &
+                    Next'Img & " (Right_Box)";
+               end if; -- Map (Next) = Free
+               if Map (Current) = Right_Box then
+                  Map (Current) := Free;
+               else
+                  raise Program_Error with "Expected Right_Box at" &
+                    Current'Img & " (Right_Box)";
+               end if; -- Map (Current) = Left_Box
+            when Wall =>
+               raise Program_Error with "Expected free space at " &
+                 Current'Img & " and found wall";
+         end case; -- Map (Current)
+      end Move;
 
    begin -- Follow_Plan
       for C in Iterate (Command_List) loop
-         if Move (Map, Robot_Position + Increment (Element (C)),
-                  Element (C)) then
+         if Can_Move (Map, Robot_Position + Increment (Element (C)),
+                      Element (C)) then
+            -- Testing free to move and moving need to be separated for the
+            -- double width boxes. When pushing offset boxes up or down using
+            -- another box two branches of recursion need to be tested and both
+            -- must to be available to move or nothing moves. When combined
+            -- testing and moving logic was used as per part one, boxes at lower
+            -- recursion levels would move when ones at higher levels could not!
+            Move (Map, Robot_Position + Increment (Element (C)), Element (C));
             if Map (Robot_Position + Increment (Element (C))) = Free then
                Robot_Position := @ + Increment (Element (C));
             else
                raise Program_Error with "Robot expected free space at" &
                  Coordinates'Image (Robot_Position + Increment (Element (C)));
             end if; -- Map (Robot_Position + Increment (Element (C))) = Free
-         end if; -- Move (Map, Robot_Position + Increment (Element (C)), ...
-         --  Put ("Move" & Move_Count'Img & ": ");
-         --  case Element (C) is
-         --     when Up =>
-         --        Put_Line ("^");
-         --     when Down =>
-         --        Put_Line ("v");
-         --     when Left =>
-         --        Put_line ("<");
-         --     when Right =>
-         --        Put_Line (">");
-         --  end case;
-         --  Put (Map, Robot_Position);
-         Move_Count := @ + 1;
+         end if; -- Can_Move (Map, Robot_Position + Increment (Element (C)), ...
       end loop; -- C in Iterate (Command_List)
    end Follow_Plan;
 
