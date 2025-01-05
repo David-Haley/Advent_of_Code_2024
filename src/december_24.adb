@@ -8,12 +8,16 @@ with Ada.Strings.Maps; use Ada.Strings.Maps;
 with Ada.Containers; use Ada.Containers;
 with Ada.Containers.Doubly_Linked_Lists;
 with Ada.Containers.Ordered_Maps;
+with Ada.Containers.Ordered_Sets;
 with Ada.Containers.Synchronized_Queue_Interfaces;
 with Ada.Containers.Unbounded_Synchronized_Queues;
 with Interfaces; use Interfaces;
 with DJH.Execution_Time; use DJH.Execution_Time;
 
 procedure December_24 is
+
+   subtype Output_Values is Unsigned_64;
+   subtype Bit_Numbers is Natural range 0 .. 63;
 
    type Gates is (And_Gate, Or_Gate, Xor_Gate);
 
@@ -67,12 +71,21 @@ procedure December_24 is
    package Trace_Stores is new Ada.Containers.Doubly_Linked_Lists (Stimuli);
    use Trace_Stores;
 
-   subtype Output_Values is Unsigned_64;
-   subtype Bit_Numbers is Natural range 0 .. 63;
+   package Gate_Sets is new Ada.Containers.Ordered_Sets (Names);
+   use Gate_Sets;
+
+   package Gate_Set_Lists is new
+     Ada.Containers.Doubly_Linked_Lists (Gate_Sets.Set);
+   use Gate_Set_Lists;
+
+   package Failed_Gate_Maps is new
+     Ada.Containers.Ordered_Maps (Bit_Numbers, Gate_Set_Lists.List);
+   use Failed_Gate_Maps;
 
    procedure Read_Input (Input_List : out Input_Lists.List;
                          Input_Map : out Input_Maps.Map;
-                         Gate_Store : out Gate_Stores.Map) is
+                         Gate_Store : out Gate_Stores.Map;
+                         Trace_On : out Boolean) is
 
       Input_File : File_Type;
       Text : Unbounded_String;
@@ -86,10 +99,14 @@ procedure December_24 is
       Target_Element : Target_Elements;
 
    begin -- Read_Input
+      Trace_On := False;
       if Argument_Count = 0 then
          Open (Input_File, In_File, "december_24.txt");
       else
          Open (Input_File, In_File, Argument(1));
+         if Argument_Count = 2 then
+            Trace_On := Argument (2) = "t" or  Argument (2) = "T";
+         end if; -- Argument_Count (2) = 2
       end if; -- Argument_Count = 0
       Clear (Input_List);
       Clear (Input_Map);
@@ -240,7 +257,9 @@ procedure December_24 is
    end Output_Register;
 
    procedure Test_Adder (Input_Map : in out Input_Maps.Map;
-                         Gate_Store : in out Gate_Stores.Map) is
+                         Gate_Store : in out Gate_Stores.Map;
+                         Failed_Gate_Map : out Failed_Gate_Maps.Map;
+                         Trace_On : Boolean := False) is
 
       -- Test sixteen cases of adding Xn, Xn+1, Yn and Yn+1,
       -- checking that X + Y = Z;
@@ -376,13 +395,56 @@ procedure December_24 is
          Close (Output_File);
       end Put;
 
+      procedure Select_Failed_Outputs (Failed_Bits : in Output_Values;
+                                       Trace_Store : in Trace_Stores.List;
+                                       MSB : in Bit_Numbers;
+                                       Failed_Gate_Map :
+                                       in out Failed_Gate_Maps.Map) is
+
+         Trace_Gates, Failed_Output_Set : Gate_Sets.Set := Gate_Sets.Empty_Set;
+         Nz : Bit_Numbers;
+         Tc : Trace_Stores.Cursor;
+
+      begin -- Select_Failed_Outputs
+         for N in Bit_Numbers range 0 .. MSB + 1 loop
+            if (Failed_Bits and Shift_Left (1, N)) /= 0 then
+               Insert (Failed_Output_Set, Build_Name ('z', N));
+            end if; -- Failed_Bits and Shift_Left (1, N) /= 0
+         end loop; -- N in Bit_Numbers range 0 .. MSB + 1
+         Tc := Last (Trace_Store);
+         loop -- search whole of trace
+            while Tc /= Trace_Stores.No_Element and then
+              not Contains (Failed_Output_Set, Element (Tc).Gate_Name) loop
+               Previous (Tc);
+            end loop; -- Tc /= Trace_Stores.No_Element and then ...
+            exit when Tc = Trace_Stores.No_Element;
+            Nz := Bit_Numbers'Value (Slice (Element (Tc).Gate_Name, 2, 3));
+            Clear (Trace_Gates);
+            Previous (Tc); -- Skip the output name
+            while Tc /= Trace_Stores.No_Element and then
+              Element (Element (Tc).Gate_Name, 1) /= 'z' loop
+               Include (Trace_Gates, Element (Tc).Gate_Name);
+               Previous (Tc);
+            end loop; -- Tc /= Trace_Stores.No_Element and then ...
+            if Trace_Gates /= Gate_Sets.Empty_Set then
+               if not Contains (Failed_Gate_Map, Nz) then
+                  Insert (Failed_Gate_Map, Nz, Gate_Set_Lists.Empty_List);
+               end if; -- not Contains (Failed_Gate_Map, Nz)
+               -- the set may be empty if there is a direct connection from an
+               -- input to an output gate
+               Append (Failed_Gate_Map (Nz), Copy (Trace_Gates));
+            end if; -- Trace_Gates /= Gate_Sets.Empty_Set
+         end loop; -- search whole of trace
+      end Select_Failed_Outputs;
+
       MSB : constant Bit_Numbers := Find_MSB (Input_Map);
-      X, Y, Z : Output_Values;
+      X, Y, Z, Failed_Bits : Output_Values;
       Trace_Store : Trace_Stores.List;
       Input_List : Input_Lists.List := Input_Lists.Empty_List;
       Pass : Boolean;
 
    begin -- Test_Adder
+      Clear (Failed_Gate_Map);
       -- define order in which bits are transmitted.
       for N in Bit_Numbers range 0 .. MSB loop
          Append (Input_List, Build_Name ('x', N));
@@ -402,11 +464,16 @@ procedure December_24 is
                      X := Input_Register (Input_Map, 'x');
                      Y := Input_Register (Input_Map, 'y');
                      Z := X + Y;
-                     if Z /= Output_Register (Gate_Store) then
+                     Failed_Bits := Z xor Output_Register (Gate_Store);
+                     if Failed_Bits /= 0 then
                         Pass := False;
-                        Put (N, Xn, Xn_1, Yn, Yn_1, Trace_Store, X, Y, Z,
-                             Output_Register (Gate_Store), MSB);
-                     end if; -- Z /= Output_Register (Gate_Store)
+                        Select_Failed_Outputs (Failed_Bits, Trace_Store, MSB,
+                                              Failed_Gate_Map);
+                        if Trace_On then
+                           Put (N, Xn, Xn_1, Yn, Yn_1, Trace_Store, X, Y, Z,
+                                Output_Register (Gate_Store), MSB);
+                        end if; -- Trace_On
+                     end if; -- Failed_Bits /= 0
                   end loop; -- Xn in Logic_Drives
                end loop; -- Xn_1 in Logic_Drives
             end loop; -- Yn in Logic_Drives
@@ -419,18 +486,47 @@ procedure December_24 is
       end loop; -- N in Bit_Numbers range 0 .. MSB - 1
    end Test_Adder;
 
+   function Failure_Analysis (Failed_Gate_Map : in Failed_Gate_Maps.Map)
+                              return Gate_Sets.Set is
+
+      Fc : Failed_Gate_Maps.Cursor := First (Failed_Gate_Map);
+      N : Bit_Numbers;
+      Result, Common : Gate_Sets.Set := Gate_Sets.Empty_Set;
+      Lc : Gate_Set_Lists.Cursor;
+
+   begin -- Failure_Analysis
+      Put_Line ("Failure_Analysis");
+      while Fc /= Failed_Gate_Maps.No_Element loop
+         N := Key (Fc);
+         Lc := First (Failed_Gate_Map (Fc));
+         Common := Copy (Element (Lc));
+         Put_Line ("First output " & N'Img & Common'Img);
+         Next (Lc);
+         while Lc /= Gate_Set_Lists.No_Element loop
+            Put_Line ("Subsequent" & Element (Lc)'Img);
+            Common := Intersection (Common, Element (Lc));
+            Next (Lc);
+         end loop; -- Lc /= Gate_Set_Lists.No_Element
+         Next (Fc);
+      end loop; -- Fc /= Failed_Gate_Maps.No_Element
+      Result := Union (Result, Common);
+      return Result;
+   end Failure_Analysis;
+
    Input_List : Input_Lists.List;
    Input_Map : Input_Maps.Map;
    Gate_Store :  Gate_Stores.Map;
+   Trace_On : Boolean;
    Trace_Store : Trace_Stores.List := Trace_Stores.Empty_List;
+   Failed_Gate_Map : Failed_Gate_Maps.Map;
 
 begin -- December_24
-   Read_Input (Input_List, Input_Map, Gate_Store);
+   Read_Input (Input_List, Input_Map, Gate_Store, Trace_On);
    Evaluate (Input_List, Input_Map, Gate_Store, Trace_Store);
    Clear (Trace_Store);
    Put_Line ("Part one:" & Output_Register (Gate_Store)'Img);
    DJH.Execution_Time.Put_CPU_Time;
-   Test_Adder (Input_Map, Gate_Store);
-   Put_Line ("Part two:");
+   Test_Adder (Input_Map, Gate_Store, Failed_Gate_Map, Trace_On);
+   Put_Line ("Part two:" & Failure_Analysis (Failed_Gate_Map)'Img);
    DJH.Execution_Time.Put_CPU_Time;
 end December_24;

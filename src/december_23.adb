@@ -159,6 +159,10 @@ procedure December_23 is
          -- Additional step needed here to remove host with the least
          -- connections within the group, that is, not counting connections
          -- outside the group.
+         for C in Iterate (Connected_Hosts) loop
+            Put_Line ("within " & Element (C));
+            Put_Line (Count_Type'Image (Length (Intersection (Connected_Hosts. Host_Map (Element (C))))));
+         end loop; -- C in Iterate (Connected_Hosts)
          if Length (Most_Hosts) < Length (Connected_Hosts) then
             Most_Hosts := Copy (Connected_Hosts);
          end if; -- Length (Most_Hosts) < Length (Connected_Hosts)
