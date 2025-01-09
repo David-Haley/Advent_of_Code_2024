@@ -7,7 +7,7 @@ project Advent_Of_Code is
       "december_24.adb", "december_25.adb");
 
    package Compiler is
-      for Switches ("ada") use ("-gnat2022", "-gnatf", "-g", "-gnato", "-gnatp", "-fstack-check");
+      for Switches ("ada") use ("-gnat2022", "-gnatf", "-g", "-gnato", "-gnatp", "-fstack-check", "-gnata");
    end Compiler;
 
    package Linker is
@@ -21,6 +21,10 @@ project Advent_Of_Code is
    package Builder is
       for Switches ("ada") use ("-j8", "-s");
    end Builder;
+
+   package Check is
+      for Default_Switches ("ada") use ("-d");
+   end Check;
 
 end Advent_Of_Code;
 
