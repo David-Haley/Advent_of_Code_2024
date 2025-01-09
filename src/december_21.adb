@@ -8,13 +8,14 @@ with Ada.Strings.Unbounded; use Ada.Strings.Unbounded;
 with Ada.Containers; use Ada.Containers;
 with Ada.Containers.Doubly_Linked_Lists;
 with Ada.Containers.Ordered_Maps;
+with Ada.Containers.Ordered_Sets;
 with Ada.Containers.Synchronized_Queue_Interfaces;
 with Ada.Containers.Unbounded_Synchronized_Queues;
 with DJH.Execution_Time; use DJH.Execution_Time;
 
 procedure December_21 is
 
-   pragma Assertion_Policy (Dynamic_Predicate => Check);
+   subtype Robot_Indices is Positive range 1 .. 25;
 
    subtype Ordinates is Integer;
    type Coordinates is record
@@ -141,7 +142,7 @@ procedure December_21 is
    subtype Codes is Unbounded_String;
 
    End_Command : constant Codes := To_Unbounded_String ("End_Command");
-   Stop_Command : constant Codes := To_Unbounded_String ("Sop_Command");
+   Stop_Command : constant Codes := To_Unbounded_String ("Stop_Command");
 
    type Button_Map_Elements is array (First_Directions) of Codes;
    -- Zero length code indicates illegal move.
@@ -187,8 +188,7 @@ procedure December_21 is
 
    task type Do_Robot is
       entry Start (Remote_Map_E : in Button_Maps.Map;
-                   Command_In_E, Command_out_E : in Command_Queue_Access;
-                   Debug_File_Name : in String);
+                   Command_In_E, Command_out_E : in Command_Queue_Access);
    end Do_Robot;
 
    procedure Read_Input (Code_List : out Code_Lists.List) is
@@ -423,7 +423,7 @@ procedure December_21 is
    end Build_Remote_Map;
 
    procedure Sequence (Door_Map : in Button_Maps.Map;
-                       Door_Command_Q, Frozen_Command_Q : in out
+                       Door_Command_Q, Human_Command_Q : in out
                          Command_Queues.Queue;
                        Code_Element : in out Code_Elements) is
 
@@ -459,7 +459,7 @@ procedure December_21 is
       Door_Command_Q.Enqueue (End_Command);
       Code_Element.My_Code := Null_Unbounded_String;
       loop -- process one command sequence
-         Frozen_Command_Q.Dequeue (My_Code);
+         Human_Command_Q.Dequeue (My_Code);
          exit when My_Code = End_Command;
          if Length (My_Code) < Length (Code_Element.My_Code) or else
            Length (Code_Element.My_Code) = 0 then
@@ -476,36 +476,27 @@ procedure December_21 is
       Code : Codes;
       Remote_Map : Button_Maps.Map;
       Command_In, Command_out : Command_Queue_Access;
-      Debug_File : File_Type;
 
    begin -- Do_Robot
       accept Start (Remote_Map_E : in Button_Maps.Map;
-                    Command_In_E, Command_out_E : in Command_Queue_Access;
-                    Debug_File_Name : in String) do
+                    Command_In_E, Command_out_E : in Command_Queue_Access) do
          Remote_Map := Remote_Map_E;
          Command_In := Command_In_E;
          Command_Out := Command_out_E;
-         Create (Debug_File, Out_File, Debug_File_Name);
       end Start;
       loop -- process one command sequence
-         Put_Line (Debug_File, "Waiting for command");
          Command_In.Dequeue (Code);
-         Put_Line (Debug_File, "Code in: " & Code);
          if Code = End_Command then
             Command_Out.Enqueue (End_Command);
-            Put_Line (Debug_File, "Sent " & End_Command);
          elsif  Code = Stop_Command then
             Command_Out.Enqueue (Stop_Command);
-            Put_Line (Debug_File, "Sent " & Stop_Command);
             exit;
          else
             Build_Q.Enqueue (Start_Build);
             while Build_Q.Current_Use > 0 loop
                Build_Q.Dequeue (Current);
-               Put_Line (Debug_File, "Build" & Current.Index'img & Current.Code);
                if Current.Index >= Length (Code) then
                   Command_Out.Enqueue (Current.Code);
-                  Put_Line (Debug_File, "Code out: " & Current.Code);
                else
                   Next.Index := Current.Index + 1;
                   if Current.Index = 0 then
@@ -525,95 +516,7 @@ procedure December_21 is
             end loop; -- Build_Q.Current_Use > 0
          end if; -- Code = End_Command
       end loop; -- process one command sequence
-      Close (Debug_File);
    end Do_Robot;
-
-   function Is_Valid (Code_Element : in Code_Elements) return Boolean is
-
-      function Verify_Door (Code : in Codes)
-                            return Codes is
-
-         Door_Check : constant array (Door_X, Door_Y) of Character :=
-           (-2 => ( 3 => '7', 2 => '4', 1 => '1', 0 => 'X'),
-            -1 => ( 3 => '8', 2 => '5', 1 => '2', 0 => '0'),
-            0 => ( 3 => '9', 2 => '6', 1 => '3', 0 => 'A'));
-
-         Door : Door_Coordinates;
-         Result : Codes := Null_Unbounded_String;
-         Press : Boolean;
-         Command : Remote_Buttons;
-
-      begin -- Verify_Door
-         Door := Door_Coordinates (Origin);
-         for D in Positive range 1 .. Length (Code) loop
-            Command := Element (Code, D);
-            Press := False;
-            case Command is
-               when '^' =>
-                 Door := @ + (0, 1);
-               when 'v' =>
-                 Door := @ + (0, -1);
-               when '<' =>
-                 Door := @ + (-1, 0);
-               when '>' =>
-                 Door := @ + (1, 0);
-               when 'A' =>
-                 Press := True;
-            end case; -- Command
-            if Press then
-               Append (Result, Door_Check (Door.X, Door.Y));
-            end if; -- Press
-         end loop; -- D
-         return Result;
-      end Verify_Door;
-
-      function Verify_Robot (Code : in Codes)
-                             return Codes is
-
-         Robot_Check : constant array (Remote_X, Remote_Y) of Character :=
-           (-2 => (0 => 'X', -1 => '<'),
-            -1 => (0 => '^', -1 => 'v'),
-            0 => (0 => 'A', -1 => '>'));
-
-         Remote : Remote_Coordinates;
-         Press : Boolean;
-         Result : Codes := Null_Unbounded_String;
-         Command : Remote_Buttons;
-
-      begin -- Verify_Robot
-         Remote := Remote_Coordinates (Origin);
-         for D in Positive range 1 .. Length (Code) loop
-            Command := Element (Code, D);
-            Press := False;
-            case Command is
-               when '^' =>
-                 Remote := @ + (0, 1);
-               when 'v' =>
-                 Remote := @ + (0, -1);
-               when '<' =>
-                 Remote := @ + (-1, 0);
-               when '>' =>
-                 Remote := @ + (1, 0);
-               when 'A' =>
-                 Press := True;
-            end case; -- Command
-            if Press then
-               Append (Result, Robot_Check (Remote.X, Remote.Y));
-            end if; -- Press
-         end loop; -- D
-         return Result;
-      end Verify_Robot;
-
-      Code_In, Code_Out : Codes;
-
-   begin -- Is_Valid
-      Code_Out := Verify_Robot (Code_Element.My_Code);
-      Code_In := Code_Out;
-      Code_Out := Verify_Robot (Code_In);
-      Code_In := Code_Out;
-      Code_Out := Verify_Door (Code_In);
-      return Code_Element.Door_Code = Code_Out;
-   end Is_Valid;
 
    function Complexity (Code_Element : in Code_Elements) return Natural is
 
@@ -626,40 +529,41 @@ procedure December_21 is
       Code_Number := Natural'Value (Slice (Code_Element.Door_Code, First,
                                     Last));
       Sequence_Length := Length (Code_Element.My_Code);
-      Put_Line ("Complexity" & Code_Number'Img & Sequence_Length'Img);
       return Code_Number * Sequence_Length;
    end Complexity;
 
    Code_List : Code_Lists.List;
    Door_Map, Remote_Map : Button_Maps.Map;
-   Door_Command_Q, Vacuum_Command_Q, Frozen_Command_Q :
-   aliased Command_Queues.Queue;
-   Vacuum_Robot, Frozen_Robot : Do_Robot;
+   Door_Command_Q : aliased Command_Queues.Queue;
+   Robot_Array : array (Robot_Indices) of Do_Robot;
+   Link_Array : array (Robot_Indices) of aliased Command_Queues.Queue;
    Sum : Natural := 0;
 
 begin -- December_21
    Read_Input (Code_List);
    Build_Door_Map (Door_Map);
    Build_Remote_Map (Remote_Map);
-   Vacuum_Robot.Start (Remote_Map, Door_Command_Q'Access,
-                       Vacuum_Command_Q'Access,
-                       "december_21_vacuum_robot_output.txt");
-   Frozen_Robot.Start (Remote_Map, Vacuum_Command_Q'Access,
-                       Frozen_Command_Q'Access,
-                       "december_21_frozen_robot_output.txt");
+   Robot_Array (1).Start (Remote_Map, Door_Command_Q'Access,
+                          Link_Array (1)'Access);
+   Robot_Array (2).Start (Remote_Map, Link_Array (1)'Access,
+                          Link_Array (2)'Access);
    for C in Iterate (Code_List) loop
-      Sequence (Door_Map, Door_Command_Q, Frozen_Command_Q, Code_List (C));
-      if Is_Valid (Element (C)) then
-         Sum := @ + Complexity (Element (C));
-      else
-         Put_Line (Element (C).My_Code & " does not produce " &
-                     Element (C).Door_Code);
-      end if; -- Is_Valid (Element (C))
+      Sequence (Door_Map, Door_Command_Q, Link_Array (2), Code_List (C));
+      Sum := @ + Complexity (Element (C));
    end loop; -- C in Iterate (Code_List)
    Put_Line ("Part one:" & Sum'Img);
    DJH.Execution_Time.Put_CPU_Time;
-   Door_Command_Q.Enqueue (Stop_Command);
-   Vacuum_Command_Q.Enqueue (Stop_Command);
+   Sum := 0;
+   for R in Robot_Indices range 3 .. Robot_Indices'Last loop
+      Robot_Array (R).Start (Remote_Map, Link_Array (R - 1)'Access,
+                             Link_Array (R)'Access);
+   end loop; -- R in Robot_Indices range 3 .. Robot_Indices'Last
+   for C in Iterate (Code_List) loop
+      Sequence (Door_Map, Door_Command_Q, Link_Array (Robot_Indices'Last),
+                Code_List (C));
+      Sum := @ + Complexity (Element (C));
+   end loop; -- C in Iterate (Code_List)
    Put_Line ("Part two:");
    DJH.Execution_Time.Put_CPU_Time;
+   Door_Command_Q.Enqueue (Stop_Command);
 end December_21;
