@@ -8,7 +8,7 @@ with Ada.Strings.Maps.Constants; use Ada.Strings.Maps.Constants;
 with Ada.Strings.Unbounded; use Ada.Strings.Unbounded;
 with Ada.Containers; use Ada.Containers;
 with Ada.Containers.Ordered_Maps;
-with Ada.Containers.Doubly_Linked_Lists;
+with Ada.Containers.Ordered_Sets;
 with Interfaces; use Interfaces;
 with DJH.Execution_Time; use DJH.Execution_Time;
 
@@ -18,9 +18,12 @@ procedure December_17 is
 
    subtype Registers is Unsigned_64;
 
+   package Register_IO is new Ada.Text_IO.Modular_IO (Registers);
+   use Register_IO;
+
    Octal_Digit_Set : constant Character_Set := To_Set ("01234567");
 
-      To_Register : constant array (Words) of Registers :=
+   To_Register : constant array (Words) of Registers :=
      (0, 1, 2, 3, 4,  5, 6, 7);
 
    type Op_Codes is (adv, bxl, bst, jnz, bxc, out_ins, bdv, cdv);
@@ -29,11 +32,11 @@ procedure December_17 is
       A, B, C, Ip : Registers;
    end record; -- Machine_States
 
-   package Program_Stores is new Ada.Containers.Ordered_Maps (Registers, Words);
-   use Program_Stores;
+   package Word_Stores is new Ada.Containers.Ordered_Maps (Registers, Words);
+   use Word_Stores;
 
    procedure Read_Input (Machine_State : out Machine_States;
-                         Program_Store : out Program_Stores.Map) is
+                         Program_Store : out Word_Stores.Map) is
 
       A_String : constant String := "Register A:";
       B_String : constant String := "Register B:";
@@ -108,12 +111,12 @@ procedure December_17 is
    end Read_Input;
 
    procedure Run (Machine_State : in out Machine_States;
-                  Program_Store : in Program_Stores.Map;
-                  Output : out Unbounded_String;
+                  Program_Store : in Word_Stores.Map;
+                  Result : out Word_Stores.Map;
                   File_Name : in Unbounded_String) is
 
       function Combo_Operand (Machine_State : in Machine_States;
-                              Program_Store : in Program_Stores.Map)
+                              Program_Store : in Word_Stores.Map)
                               return Registers is
 
          Result : Registers := 0;
@@ -136,15 +139,15 @@ procedure December_17 is
 
       pragma Inline_Always (Combo_Operand);
 
-
       Output_File : File_Type;
+      Output_Count : Registers := 0;
       Trace_On : Boolean := Length (File_Name) > 0;
 
    begin -- Run
       if Trace_On then
          Create (Output_File, Out_File, To_String (File_Name));
       end if;
-      Output := Null_Unbounded_String;
+      Clear (Result);
       while Contains (Program_Store, Machine_State.Ip) loop
          if Trace_On then
             Put (Output_File, "Ip:" & Machine_State.Ip'Img & ": " &
@@ -153,8 +156,10 @@ procedure December_17 is
          end if; -- Trace_On Trace_On
          case Op_Codes'Val (Program_Store (Machine_State.Ip)) is
             when adv =>
-               Machine_State.A := @
-                 / 2 ** Natural (Combo_Operand (Machine_State, Program_Store));
+               Machine_State.A :=
+                 Shift_Right (Machine_State.A,
+                              Natural (Combo_Operand (Machine_State,
+                                Program_Store)));
                Machine_State.Ip := @ + 2;
             when bxl =>
                Machine_State.B := @ xor
@@ -175,48 +180,122 @@ procedure December_17 is
                Machine_State.B := @ xor Machine_State.C;
                Machine_State.Ip := @ + 2;
             when out_ins =>
-               Append (Output, "," &
-                         Trim ( Registers'Image (Combo_Operand (Machine_State,
-                         Program_Store) mod Words'Modulus),Left));
+               Insert (Result,
+                       Output_Count,
+                       Words (Combo_Operand (Machine_State,
+                         Program_Store) mod Words'Modulus));
+               Output_Count := @ + 1;
                Machine_State.Ip := @ + 2;
             when bdv =>
-               Machine_State.B := Machine_State.A
-                 / 2 ** Natural (Combo_Operand (Machine_State, Program_Store));
+               Machine_State.B :=
+                 Shift_Right (Machine_State.A,
+                              Natural (Combo_Operand (Machine_State,
+                                Program_Store)));
                Machine_State.Ip := @ + 2;
             when cdv =>
-               Machine_State.C := Machine_State.A
-                 / 2 ** Natural (Combo_Operand (Machine_State, Program_Store));
+               Machine_State.C :=
+                 Shift_Right (Machine_State.A,
+                              Natural (Combo_Operand (Machine_State,
+                                Program_Store)));
                Machine_State.Ip := @ + 2;
          end case; -- Program_Store (Machine_State.Ip)
          if Trace_On then
-            Put_Line (Output_File, " => A:" & Machine_State.A'Img &
-                        ", B:" & Machine_State.B'Img &
-                        ", C:" & Machine_State.C'Img);
+            Default_Base := 8;
+            Default_Width := 64 / 3 + 4;
+            Put (Output_File, " => A:");
+            Put (Output_File, Machine_State.A);
+            Put (Output_File, ", B:");
+            Put (Output_File, Machine_State.B);
+            Put (Output_File, ", C:");
+            Put (Output_File, Machine_State.C);
+            New_Line (Output_File);
          end if; -- Trace_On
       end loop; -- Contains (Program_Store, Machine_State.Ip)
-      Delete (Output, 1, 1); -- remove leading ','
       If Trace_On then
          Close (Output_File);
       end if; -- Trace_On
    end Run;
 
+   procedure Put (Result : in Word_Stores.Map) is
+
+   begin -- Put
+      for W in Iterate (Result) loop
+         Put (Trim (Element (W)'Img, Left));
+         if W /= Last (Result) then
+            Put (',');
+         end if; -- W /= Last (Result)
+      end loop; -- W in Iterate (Result);
+   end Put;
+
+   function Part_2_Register_A (Program_Store : in Word_Stores.Map;
+                               Base_File_Name : in Unbounded_String)
+                               return Registers is
+
+      package Working_Sets is new
+        Ada.Containers.Ordered_Sets (Registers);
+      use Working_Sets;
+
+      Machine_State : Machine_States;
+      MSD : Registers := Registers (Length (Program_Store)) - 1;
+      Test_Result : Word_Stores.Map;
+      Old_A_Set, New_A_Set : Working_Sets.Set := Working_Sets.Empty_Set;
+      Test_A : Registers;
+      Program_Store_Value : Words;
+      Digit_Width : constant Natural := Words'Size;
+      Digit_Mask : constant Registers := not To_Register (Words'Last);
+      Trace_File_Name : Unbounded_String;
+
+   begin -- Part_2_Register_A
+      Insert (Old_A_Set, 0);
+      for D in reverse Registers range 0 .. MSD loop
+         Program_Store_Value := Program_Store (D);
+         for A in Iterate (Old_A_Set) loop
+            Test_A := Element (A);
+            for Test_Digit in Words loop
+               Test_A := @ and Rotate_Left (Digit_Mask,
+                                            Natural (D) * Digit_Width);
+               Test_A := @ or Shift_Left (To_Register (Test_Digit),
+                                          Natural (D) * Digit_Width);
+               Machine_State := (A => Test_A, B => 0, C => 0, IP => 0);
+               if Length (Base_File_Name) = 0 then
+                  Run (Machine_State, Program_Store, Test_Result,
+                       Null_Unbounded_String);
+               else
+                  Trace_File_Name := Base_File_Name & "_" &
+                    Trim (Test_A'Img, Left) & ".txt";
+                  Run (Machine_State, Program_Store, Test_Result,
+                         Trace_File_Name);
+               end if; -- Length (Base_File_Name) = 0
+               if Contains (Test_Result, D) and then
+                 Program_Store_Value = Test_Result (D) then
+                  Insert (New_A_Set, Test_A);
+               end if; -- Contains (Test_Result, D) and then ...
+            end Loop; -- Test_Digit in Words
+         end loop; -- A in Iterate (Old_A_Set)
+         Clear (Old_A_Set);
+         Old_A_Set := Copy (New_A_Set);
+         Clear (New_A_Set);
+      end loop; -- D in reverse Registers range 0 .. MSD
+      return First_Element (Old_A_Set);
+   end Part_2_Register_A;
+
    Machine_State : Machine_States;
-   Program_Store : Program_Stores.Map;
-   Output, Output_2 : Unbounded_String;
+   Program_Store : Word_Stores.Map;
+   Result : Word_Stores.Map;
    File_Name : Unbounded_String;
 
 begin -- December_17
    Read_Input (Machine_State, Program_Store);
    Put ("Enter file name for trace, Enter only for no trace: ");
    Get_Line (File_Name);
-   Run (Machine_State, Program_Store, Output, File_Name);
-   Put_Line ("Part one: " & Output);
+   Run (Machine_State, Program_Store, Result, File_Name);
+   Put ("Part one: ");
+   Put (Result);
+   New_Line;
    DJH.Execution_Time.Put_CPU_Time;
-   Read_Input (Machine_State, Program_Store);
-   Machine_State.A := 2 ** 15 * 4;
-   Put ("Enter file name for trace, Enter only for no trace: ");
+   Put ("Enter base file name for trace, Enter only for no trace: ");
    Get_Line (File_Name);
-   Run (Machine_State, Program_Store, Output_2, File_Name);
-   Put_Line ("Part two: " & Output_2);
+   Run (Machine_State, Program_Store, Result, File_Name);
+   Put_Line ("Part two: " & Part_2_Register_A (Program_Store, File_Name)'Img);
    DJH.Execution_Time.Put_CPU_Time;
 end December_17;
