@@ -62,11 +62,11 @@ procedure December_22 is
                                  Equivalent_Keys => Equivalent);
    use Run_Maps;
 
-   package Run_Sets is new
-     Ada.Containers.Hashed_Sets (Element_Type => Run_Arrays,
-                                 Hash => Hash,
-                                 Equivalent_Elements => Equivalent);
-   use Run_Sets;
+   --  package Run_Sets is new
+   --    Ada.Containers.Hashed_Sets (Element_Type => Run_Arrays,
+   --                                Hash => Hash,
+   --                                Equivalent_Elements => Equivalent);
+   --  use Run_Sets;
 
    type Price_Arrays is array (Price_Indices) of Price_Element;
 
@@ -79,9 +79,18 @@ procedure December_22 is
      Ada.Containers.Doubly_Linked_Lists (Buyer_Elements);
    use Buyer_Lists;
 
-   package Change_Lists is new
-     Ada.Containers.Doubly_Linked_Lists (Run_Arrays);
-   use Change_Lists;
+   type All_Buyer_Elements is record
+      Count : Natural := 0;
+      Price : Prices := Prices'First;
+   end record; -- All_Buyer_Elements
+
+   package All_Buyer_Maps is new
+     Ada.Containers.Hashed_Maps (Key_Type => Run_Arrays,
+                                 Element_Type => All_Buyer_Elements,
+                                 Hash => Hash,
+                                 Equivalent_Keys => Equivalent);
+   use All_Buyer_Maps;
+
 
    procedure Read_Input (Number_List : out Number_Lists.List) is
 
@@ -130,7 +139,7 @@ procedure December_22 is
 
    procedure Find_Runs (Number_List : in Number_Lists.List;
                         Buyer_List : out Buyer_Lists.List;
-                        All_Runs : out Run_Sets.Set) is
+                        All_Buyer_Map : out All_Buyer_Maps.Map) is
 
       Buyer_Element : Buyer_Elements;
       Current, Previous : Secret_Numbers;
@@ -138,7 +147,7 @@ procedure December_22 is
 
    begin -- Find_Runs
       Clear (Buyer_List);
-      Clear (All_Runs);
+      Clear (All_Buyer_Map);
       for B in Iterate (Number_List) loop
          Previous := Element (B);
          for P in Price_Indices loop
@@ -160,7 +169,20 @@ procedure December_22 is
               Buyer_Element.Price_Array (P).Price > 0 then
                Insert (Buyer_Element.Run_Map, Run_Array,
                        Buyer_Element.Price_Array (P).Price);
-               Include (All_Runs, Run_Array);
+               if not Contains (All_Buyer_Map, Run_Array) then
+                  declare -- All_Buyer_Element declaration block
+                     All_Buyer_Element : All_Buyer_Elements;
+                  begin
+                     Insert (All_Buyer_Map, Run_Array, All_Buyer_Element);
+                  end; -- All_Buyer_Element declaration block
+               end if; -- not Contains (All_Buyer_Map, Run_Array)
+               if All_Buyer_Map (Run_Array).Price <
+                 Buyer_Element.Price_Array (P).Price then
+                  -- find upper bound for this run
+                  All_Buyer_Map (Run_Array).Price :=
+                    Buyer_Element.Price_Array (P).Price;
+               end if; -- All_Buyer_Map (Run_Array).Price < ..
+               All_Buyer_Map (Run_Array).Count := @ + 1;
             end if; -- not Contains (Buyer_Element.Run_Map, Run_Array) and ...
          end loop; -- P in Price_Indices range 4 .. Prices_Per_Day
          Append (Buyer_List, Buyer_Element);
@@ -168,37 +190,35 @@ procedure December_22 is
    end Find_Runs;
 
    function Largest_Sum (Buyer_List : in Buyer_Lists.List;
-                         All_Runs : in Run_Sets.Set) return Natural is
+                         All_Buyer_Map : in All_Buyer_Maps.Map) return Natural is
 
       Result : Natural := 0;
       Sum : Natural;
-      Count : Positive := 1;
 
    begin -- Largest_Sum
-      for R in Iterate (All_Runs) loop
-         Sum := 0;
-         for B in Iterate (Buyer_List) loop
-            if Contains (Element (B).Run_Map, Element (R)) then
-               Sum := @ + Element (B).Run_Map (Element (R));
-            end if; -- Contains (Element (B).Run_Map, Element (R))
-         end loop; -- B in Iterate (Buyer_List)
+      for A in Iterate (All_Buyer_Map) loop
+         Sum := Element (A).Price * Element (A).Count;
+         -- Upper bound on sum
+         if Sum > Result and Element (A).Price > 1 then
+            -- Caculate actual sum
+            Sum := 0;
+            for B in Iterate (Buyer_List) loop
+               if Contains (Element (B).Run_Map, Key (A)) then
+                  Sum := @ + Element (B).Run_Map (Key (A));
+               end if; -- Contains (Element (B).Run_Map, Element (R))
+            end loop; -- B in Iterate (Buyer_List)
+         end if; -- Sum > Result and Element (A).Price > 1
          if Sum > Result then
             Result := Sum;
          end if; -- Sum > Result
-         if Count mod 500 = 0 then
-            Put ("Runs checked:" & Count'Img & " Largest sum:" & Result'Img &
-                   " ");
-            DJH.Execution_Time.Put_CPU_Time;
-         end if; -- Count mod 500 = 0
-         Count := @ + 1;
-      end loop; -- R in Iterate (All_Runs)
+      end loop; -- A in Iterate (All_Buyer_Map)
       return Result;
    end Largest_Sum;
 
    Number_List : Number_Lists.List;
    Sum : Secret_Numbers := 0;
    Buyer_List : Buyer_Lists .List;
-   All_Runs : Run_Sets.Set;
+   All_Buyer_Map : All_Buyer_Maps.Map;
 
 begin -- December_22
    Read_Input (Number_List);
@@ -207,7 +227,7 @@ begin -- December_22
    end loop; -- S in Iterate (Nunber_List)
    Put_Line ("Part one:" & Sum'Img);
    DJH.Execution_Time.Put_CPU_Time;
-   Find_Runs (Number_List, Buyer_List, All_Runs);
-   Put_Line ("Part two:" & Largest_Sum (Buyer_List, All_Runs)'Img);
+   Find_Runs (Number_List, Buyer_List, All_Buyer_Map);
+   Put_Line ("Part two:" & Largest_Sum (Buyer_List, All_Buyer_Map)'Img);
    DJH.Execution_Time.Put_CPU_Time;
 end December_22;
