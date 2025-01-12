@@ -1,6 +1,7 @@
 with Ada.Text_IO; use Ada.Text_IO;
 with Ada.Command_Line; use Ada.Command_Line;
 with Ada.Containers; use Ada.Containers;
+with Ada.Containers.Vectors;
 with Ada.Containers.Doubly_Linked_Lists;
 with Ada.Containers.Hashed_Maps;
 with Ada.Containers.Hashed_Sets;
@@ -62,12 +63,6 @@ procedure December_22 is
                                  Equivalent_Keys => Equivalent);
    use Run_Maps;
 
-   --  package Run_Sets is new
-   --    Ada.Containers.Hashed_Sets (Element_Type => Run_Arrays,
-   --                                Hash => Hash,
-   --                                Equivalent_Elements => Equivalent);
-   --  use Run_Sets;
-
    type Price_Arrays is array (Price_Indices) of Price_Element;
 
    type Buyer_Elements is record
@@ -75,12 +70,19 @@ procedure December_22 is
       Run_Map : Run_Maps.Map := Run_Maps.Empty_Map;
    end record; -- Buyer_Elements
 
+   subtype Buyer_Indices is Positive;
+
    package Buyer_Lists is new
-     Ada.Containers.Doubly_Linked_Lists (Buyer_Elements);
+     Ada.Containers.Vectors (Buyer_Indices, Buyer_Elements);
    use Buyer_Lists;
 
+   package Buyer_Reference_Lists is new
+     Ada.Containers.Doubly_Linked_Lists (Buyer_Indices);
+   use Buyer_Reference_Lists;
+
    type All_Buyer_Elements is record
-      Count : Natural := 0;
+      Buyer_Reference_List : Buyer_Reference_Lists.List :=
+        Buyer_Reference_Lists.Empty_List;
       Price : Prices := Prices'First;
    end record; -- All_Buyer_Elements
 
@@ -90,7 +92,6 @@ procedure December_22 is
                                  Hash => Hash,
                                  Equivalent_Keys => Equivalent);
    use All_Buyer_Maps;
-
 
    procedure Read_Input (Number_List : out Number_Lists.List) is
 
@@ -138,7 +139,7 @@ procedure December_22 is
    end Last_Number;
 
    procedure Find_Runs (Number_List : in Number_Lists.List;
-                        Buyer_List : out Buyer_Lists.List;
+                        Buyer_List : out Buyer_Lists.Vector;
                         All_Buyer_Map : out All_Buyer_Maps.Map) is
 
       Buyer_Element : Buyer_Elements;
@@ -182,31 +183,41 @@ procedure December_22 is
                   All_Buyer_Map (Run_Array).Price :=
                     Buyer_Element.Price_Array (P).Price;
                end if; -- All_Buyer_Map (Run_Array).Price < ..
-               All_Buyer_Map (Run_Array).Count := @ + 1;
+               Append (All_Buyer_Map (Run_Array).Buyer_Reference_List,
+                       Last_Index (Buyer_List) + 1);
+               -- Buyer is yet to be appended to Buyer_List
             end if; -- not Contains (Buyer_Element.Run_Map, Run_Array) and ...
          end loop; -- P in Price_Indices range 4 .. Prices_Per_Day
          Append (Buyer_List, Buyer_Element);
       end loop; -- B in Iterate (Number_List)
    end Find_Runs;
 
-   function Largest_Sum (Buyer_List : in Buyer_Lists.List;
-                         All_Buyer_Map : in All_Buyer_Maps.Map) return Natural is
+   function Largest_Sum (Buyer_List : in Buyer_Lists.Vector;
+                         All_Buyer_Map : in All_Buyer_Maps.Map)
+                         return Natural is
 
       Result : Natural := 0;
       Sum : Natural;
 
    begin -- Largest_Sum
       for A in Iterate (All_Buyer_Map) loop
-         Sum := Element (A).Price * Element (A).Count;
+         Sum := Element (A).Price *
+           Natural (Length (Element (A).Buyer_Reference_List));
          -- Upper bound on sum
          if Sum > Result and Element (A).Price > 1 then
             -- Caculate actual sum
-            Sum := 0;
-            for B in Iterate (Buyer_List) loop
-               if Contains (Element (B).Run_Map, Key (A)) then
-                  Sum := @ + Element (B).Run_Map (Key (A));
-               end if; -- Contains (Element (B).Run_Map, Element (R))
-            end loop; -- B in Iterate (Buyer_List)
+            declare -- Buyer_Reference_List declaration block
+               Buyer_Reference_List : Buyer_Reference_Lists.List
+                 := Copy (Element (A).Buyer_Reference_List);
+               -- The copy should be unnecessary but is a work around for a
+               -- problem with the compiler not implementing
+               -- Iterate (Element (A).Buyer_Reference_List) properly.
+            begin
+               Sum := 0;
+               for B in Iterate (Buyer_Reference_List) loop
+                  Sum := @ + Buyer_List (Element (B)).Run_Map (Key (A));
+               end loop; -- B in Iterate (Buyer_Reference_List)
+            end; -- Buyer_Reference_List declaration block
          end if; -- Sum > Result and Element (A).Price > 1
          if Sum > Result then
             Result := Sum;
@@ -217,7 +228,7 @@ procedure December_22 is
 
    Number_List : Number_Lists.List;
    Sum : Secret_Numbers := 0;
-   Buyer_List : Buyer_Lists .List;
+   Buyer_List : Buyer_Lists.Vector;
    All_Buyer_Map : All_Buyer_Maps.Map;
 
 begin -- December_22
