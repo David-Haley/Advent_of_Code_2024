@@ -8,9 +8,6 @@ with Ada.Containers; use Ada.Containers;
 with Ada.Containers.Doubly_Linked_Lists;
 with Ada.Containers.Ordered_Maps;
 with Ada.Containers.Ordered_Sets;
-with Ada.Containers.Synchronized_Queue_Interfaces;
-with Ada.Containers.Unbounded_Synchronized_Queues;
-with Ada.Containers.Generic_Constrained_Array_Sort;
 with DJH.Execution_Time; use DJH.Execution_Time;
 
 procedure December_23 is
@@ -30,39 +27,6 @@ procedure December_23 is
 
    package Host_Maps is new Ada.Containers.Ordered_Maps (Hosts, Host_Sets.Set);
    use Host_Maps;
-
-   subtype Triple_Indices is Positive range 1 .. 3;
-   type Triples is array (Triple_Indices) of Hosts;
-
-   procedure Triple_Sort is new Ada.Containers.Generic_Constrained_Array_Sort
-     (Index_Type => Triple_Indices,
-      Element_Type => Hosts,
-      Array_Type => Triples);
-
-   function "<" (Left, Right : Triples) return Boolean is
-
-      L : Unbounded_String :=
-        To_Unbounded_String (Left (1) & Left (2) & Left (3));
-      R : Unbounded_String :=
-        To_Unbounded_String (Right (1) & Right (2) & Right (3));
-
-   begin -- "<"
-      return L < R;
-   end "<";
-
-   function "=" (Left, Right : Triples) return Boolean is
-
-      L : Unbounded_String :=
-        To_Unbounded_String (Left (1) & Left (2) & Left (3));
-      R : Unbounded_String :=
-        To_Unbounded_String (Right (1) & Right (2) & Right (3));
-
-   begin -- "="
-      return L = R;
-   end "=";
-
-   package Triple_Sets is new Ada.Containers.Ordered_Sets (Triples);
-   use Triple_Sets;
 
    procedure Read_Input (Connection_List : out Connection_Lists.List) is
 
@@ -110,36 +74,44 @@ procedure December_23 is
       end loop; -- C In Iterate (Connection_List)
    end Build_Host_Map;
 
-   function Count_Triples (Host_Map : in Host_Maps.Map) return Count_Type is
+   function Count_Triples (Host_Map : in Host_Maps.Map)  return Natural is
 
-      function Contains_t (Triple : in Triples) return Boolean is
-        (Triple (1) (1) = 't' or Triple (2) (1) = 't' or Triple (3) (1) = 't');
-
-      H2, H3 : Host_Maps.Cursor;
-      Triple : Triples;
-      Triple_Set : Triple_Sets.Set;
+      T_Set : Host_Sets.Set := Host_Sets.Empty_Set;
+      Count : Natural := 0;
+      H1, H2, H3 : Host_Maps.Cursor;
+      Test_Set : Host_Sets.Set;
 
    begin -- Count_Triples
-      Clear (Triple_Set);
-      for H1 in Iterate (Host_Map) loop
+      for H in Iterate (Host_Map) loop
+         if Key (H) (1) = 't' then
+            Insert (T_Set, Key (H));
+         end if; -- Key (H) (1) = 't'
+      end loop; -- H in Iterate (Host_Maps)
+      H1 := First (Host_Map);
+      while H1 /= Host_Maps.No_Element loop
          H2 := Next (H1);
          while H2 /= Host_Maps.No_Element loop
-            H3 := Next (H2);
-            while H3 /= Host_Maps.No_Element loop
-               Triple := (Key(H1), Key (H2), Key (H3));
-               if Contains_t (Triple) and then
-                 (Contains (Element (H2), Key (H1)) and
-                    Contains (Element (H3), Key (H1)) and
-                      Contains (Element (H3), Key (H2))) then
-                  Triple_Sort (Triple);
-                  Include (Triple_Set, Triple);
-               end if; -- Contains_t (Triple) and then ...
-               Next (H3);
-            end loop; -- H3 /= Host_Maps.No_Element
+            if Contains (Element (H1), Key (H2)) then
+               H3 := Next (H2);
+               while H3 /= Host_Maps.No_Element loop
+                  if Contains (Element (H2), Key (H3)) and then
+                    Contains (Element (H3), Key (H1)) then
+                        Test_Set := Union (Union (
+                                           To_Set (Key (H1)),
+                                           To_Set (Key (H2))),
+                                           To_Set (Key (H3)));
+                     if not Is_Empty (Intersection (Test_Set, T_Set)) then
+                        Count := @ + 1;
+                     end if; -- not Is_Empty (Intersection (Test_Set, T_Set))
+                  end if;
+                  Next (H3); -- H3 /= Host_Maps.No_Element
+               end loop; -- H3 /= Host_Maps.No_Element
+            end if; -- Contains (Host_Map (H1), Element (H2))
             Next (H2);
-         end loop; -- H2 /= Host_Maps.No_Element
-      end loop; -- H1 in Iterate (Host_Maps)
-      return Length (Triple_Set);
+         end loop; -- H2 /= H2_Limit
+         Next (H1);
+      end loop; -- H1 /= H1_limit
+      return Count;
    end Count_Triples;
 
    function Find_Password (Host_Map : in Host_Maps.Map) return
