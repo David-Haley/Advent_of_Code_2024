@@ -145,32 +145,65 @@ procedure December_23 is
    function Find_Password (Host_Map : in Host_Maps.Map) return
      Unbounded_String is
 
-      All_Hosts, Connected_Hosts, Most_Hosts : Host_Sets.Set :=
-        Host_Sets.Empty_Set;
+      package Clique_Lists is new
+        Ada.Containers.Doubly_Linked_Lists (Host_Sets.Set);
+      use Clique_Lists;
+
+      procedure Bron_Kerbosch (R_In, P_In, X_In : in Host_Sets.Set;
+                               Clique_List : in out Clique_Lists.List) is
+
+         -- https://en.wikipedia.org/wiki/Bron%E2%80%93Kerbosch_algorithm
+         --
+         -- algorithm BronKerbosch1(R, P, X) is
+         --     if P and X are both empty then
+         --         report R as a maximal clique
+         --     for each vertex v in P do
+         --         BronKerbosch1(R u {v}, P n N(v), X n N(v))
+         --         P := P \ {v}
+         --         X := X u {v}
+
+         P : Host_Sets.Set := copy (P_In);
+         X : Host_Sets.Set := Copy (X_In);
+         V : Hosts;
+
+      begin -- Bron_Kerbosch
+         If Is_Empty (P) and Is_Empty (X) then
+            Append (Clique_List, R_In);
+         else
+            while not Is_Empty (P) loop
+               V := First_Element (P);
+               Bron_Kerbosch (Union (R_In, To_Set (V)),
+                              Intersection (P, Host_Map (V)),
+                              Intersection (X, Host_Map (V)),
+                              Clique_List);
+               Exclude (P, V);
+               Include (X, V);
+            end loop; -- not Is_Empty (P)
+         end if; -- Is_Empty (P) and Is_Empty (X)
+      end Bron_Kerbosch;
+
+      R, P, X : Host_Sets.Set := Host_Sets.Empty_Set;
+      Clique_List : Clique_Lists.List := Clique_Lists.Empty_List;
+      Largest_Set : Host_Sets.Set := Host_Sets.Empty_Set;
+      Result : Unbounded_String := Null_Unbounded_String;
 
    begin -- Find_Password
       for H in Iterate (Host_Map) loop
-         insert (All_Hosts, Key (H));
+         Insert (P, Key (H));
       end loop; -- H in Iterate (Host_Map)
-      while Length (All_Hosts) > 0 loop
-         Clear (Connected_Hosts);
-         Insert (Connected_Hosts, First_Element (All_Hosts));
-         Union (Connected_Hosts, Host_Map (First_Element (All_Hosts)));
-         -- Additional step needed here to remove host with the least
-         -- connections within the group, that is, not counting connections
-         -- outside the group.
-         for C in Iterate (Connected_Hosts) loop
-            Put_Line ("within " & Element (C));
-            Put_Line (Count_Type'Image (Length (Intersection (Connected_Hosts. Host_Map (Element (C))))));
-         end loop; -- C in Iterate (Connected_Hosts)
-         if Length (Most_Hosts) < Length (Connected_Hosts) then
-            Most_Hosts := Copy (Connected_Hosts);
-         end if; -- Length (Most_Hosts) < Length (Connected_Hosts)
-         for E in Iterate (Connected_Hosts) loop
-            Exclude (All_Hosts, Element (E));
-         end loop; -- E in Iterate (Connected_Hosts)
-      end loop; -- Length (All_Hosts) > 0
-      return To_Unbounded_String (Most_Hosts'Img);
+      Bron_Kerbosch (R, P, X, Clique_List);
+      for C in Iterate (Clique_List) loop
+         if Length (Largest_Set) < Length (Element (C)) then
+            Largest_Set := Element (C);
+         end if; -- Length (Largest_Set) < Length (Element (C))
+      end loop; -- Length (Largest_Set) < Length (Element (C))
+      for L in Iterate (Largest_Set) loop
+         Result := @ & Element (L);
+         if L /= Last (Largest_Set) then
+            Result := @ & ",";
+         end if; -- L /= Last (Largest_Set)
+      end loop; -- L in Iterate (Largest_Set)
+      return Result;
    end Find_Password;
 
    Connection_List : Connection_Lists.List;
@@ -181,6 +214,6 @@ begin -- December_23
    Build_Host_Map (Connection_List, Host_Map);
    Put_Line ("Part one:" & Count_Triples (Host_Map)'Img);
    DJH.Execution_Time.Put_CPU_Time;
-   Put_Line ("Part two:" & Find_Password (Host_Map));
+   Put_Line ("Part two: " & Find_Password (Host_Map));
    DJH.Execution_Time.Put_CPU_Time;
 end December_23;
