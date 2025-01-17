@@ -78,7 +78,6 @@ procedure December_23 is
 
       T_Set : Host_Sets.Set := Host_Sets.Empty_Set;
       Count : Natural := 0;
-      H1, H2, H3 : Host_Maps.Cursor;
       Test_Set : Host_Sets.Set;
 
    begin -- Count_Triples
@@ -87,30 +86,25 @@ procedure December_23 is
             Insert (T_Set, Key (H));
          end if; -- Key (H) (1) = 't'
       end loop; -- H in Iterate (Host_Maps)
-      H1 := First (Host_Map);
-      while H1 /= Host_Maps.No_Element loop
-         H2 := Next (H1);
-         while H2 /= Host_Maps.No_Element loop
-            if Contains (Element (H1), Key (H2)) then
-               H3 := Next (H2);
-               while H3 /= Host_Maps.No_Element loop
-                  if Contains (Element (H2), Key (H3)) and then
-                    Contains (Element (H3), Key (H1)) then
-                        Test_Set := Union (Union (
-                                           To_Set (Key (H1)),
-                                           To_Set (Key (H2))),
-                                           To_Set (Key (H3)));
-                     if not Is_Empty (Intersection (Test_Set, T_Set)) then
-                        Count := @ + 1;
-                     end if; -- not Is_Empty (Intersection (Test_Set, T_Set))
-                  end if;
-                  Next (H3); -- H3 /= Host_Maps.No_Element
-               end loop; -- H3 /= Host_Maps.No_Element
-            end if; -- Contains (Host_Map (H1), Element (H2))
-            Next (H2);
-         end loop; -- H2 /= H2_Limit
-         Next (H1);
-      end loop; -- H1 /= H1_limit
+      for H1 in Iterate (Host_Map) loop
+         for H2 in  Iterate (Host_Map (H1)) loop
+            for H3 in Iterate (Host_Map (Element (H2))) loop
+               -- Assert Host H1 is connected to Host H2 and
+               -- Host H2 is connected to Host H3
+               if Key (H1) < Element (H2) and Element (H2) < Element (H3) and
+                 -- prevent permutations from being included
+                 Contains (Host_Map (Element (H3)), Key (H1)) then
+                  -- chack that the host H3 is connected to Host H1
+                  Test_Set := Union (Union (To_Set (Key (H1)),
+                                     To_Set (Element (H2))),
+                                     To_Set (Element (H3)));
+                  if not Is_Empty (Intersection (Test_Set, T_Set)) then
+                     Count := @ + 1;
+                  end if; -- not Is_Empty (Intersection (Test_Set, T_Set)
+               end if; -- Key (H1) < Element (H2) and Element (H2) < ...
+            end loop; -- H3 in Iterate (Host_Map (Element (H2)))
+         end loop; -- H2 in  Iterate (Host_Map (H1))
+      end loop; -- H1 in Iterate (Host_Map)
       return Count;
    end Count_Triples;
 
