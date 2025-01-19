@@ -15,7 +15,8 @@ with DJH.Execution_Time; use DJH.Execution_Time;
 
 procedure December_21 is
 
-   subtype Robot_Indices is Positive range 1 .. 25;
+   subtype Robot_Indices is Positive range 1 .. 2;
+   -- The part 1 approach is infeasible for more than two robots!
 
    subtype Ordinates is Integer;
    type Coordinates is record
@@ -532,10 +533,151 @@ procedure December_21 is
       return Code_Number * Sequence_Length;
    end Complexity;
 
+   procedure Sequence_2 (Door_Map : in Button_Maps.Map;
+                         Code_In : in Codes;
+                         In_Q, Out_Q : in out Command_Queues.Queue) is
+
+      package Door_Code_lists is new
+        Ada.Containers.Doubly_Linked_Lists (Codes);
+      use Door_Code_lists;
+
+      package Count_Maps is new
+        Ada.Containers.Ordered_Maps (Codes, Positive);
+      use Count_Maps;
+
+      package Cost_Maps is new
+        Ada.Containers.Ordered_Maps (Codes, Count_Maps.Map);
+      use Cost_Maps;
+
+      Direction_Keys : constant Character_Set := To_Set ("<>^v");
+
+      procedure To_Count_Map (Code : in Codes;
+                              Count_Map : out Count_Maps.Map) is
+
+         Start_At, First : Positive;
+         Last : Natural;
+
+      begin -- To_Count_Map
+         Clear (Count_Map);
+         Start_At := 1;
+         loop -- process one sub sequence ending in 'A'
+            Find_Token (Code, Direction_Keys, Start_At, Inside, First,
+                        Last);
+            exit when Last = 0;
+            Start_At := Last + 1;
+            if Contains (Count_Map, Unbounded_Slice (Code, First, Last + 1))
+            then
+               Count_Map (Unbounded_Slice (Code, First, Last + 1)) :=
+                 Count_Map (Unbounded_Slice (Code, First, Last + 1)) + 1;
+            else
+               Insert (Count_Map, Unbounded_Slice (Code, First, Last + 1), 1);
+            end if; -- Contains (Count_Map, Unbounded_Slice (Code ...
+         end loop; -- process one sub sequence ending in 'A'
+      end To_Count_Map;
+
+      procedure Do_Robot_N (Level : in Natural;
+                            Cost_Map : in out Cost_Maps.Map;
+                            Count_Map : in Count_Maps.Map;
+                            Total_Cost : in out  Natural) is
+
+         procedure Update (Code : in Codes;
+                           Cost_Map : in out Cost_Maps.Map) is
+
+            Code_Out, Saved_Code : Codes;
+            Saved_Length : Positive := Positive'Last;
+            Count_Map : Count_Maps.Map;
+
+         begin -- Update
+            In_Q.Enqueue (Code);
+            In_Q.Enqueue (End_Command);
+            loop -- Retrieve one Code
+               Out_Q.Dequeue (Code_Out);
+               exit when Code_Out = End_Command;
+               -- Local optimisation only, is this good enough?
+               if Saved_Length > Length (Code_Out) then
+                  Saved_Length := Length (Code_Out);
+                  Saved_Code := Code_Out;
+               end if; -- Saved_Length > Length (Code_Out)
+            end loop; -- Retrieve one Code
+            To_Count_Map (Saved_Code, Count_Map);
+            Insert (Cost_Map, Code, Count_Map);
+         end Update;
+
+         Sum : Natural := 0;
+         Count_Map_Out : Count_Maps.Map := Count_Maps.Empty_Map;
+         Local : Count_Maps.Map;
+
+      begin -- Do_Robot_N
+         if Level = 0 then
+            for C in Iterate (Count_Map) loop
+               Sum := @ + Element (C) * Length (Key (C));
+            end loop; -- C in Iterate (Count_Map)
+            -- global optimisation
+            if Total_Cost > Sum then
+               Total_Cost := Sum;
+            end if; -- Total_Cost > Sum
+         else
+            for C in Iterate (Count_Map) loop
+               if not Contains (Cost_Map, Key (C)) then
+                  Update (Key (C), Cost_Map);
+               end if; -- not Contains (Cost_Map, Key (C))
+               Local := Cost_Map (Key (C));
+               for L in Iterate (Local) loop
+                  if Contains (Count_Map_Out, Key (L)) then
+                     Count_Map_Out (Key (L)) := Count_Map_Out (Key (L)) +
+                       Element (L);
+                  else
+                     Insert (Count_Map_Out, Key (L), Element (L));
+                  end if; -- Contains (Count_Map_Out, Key (L))
+               end loop; -- L in Iterate (Local)
+            end loop; -- C in Iterate (Count_Map)
+            Do_Robot_N (Level - 1, Cost_Map, Count_Map_Out, Total_Cost);
+         end if; -- Level = 0
+      end Do_Robot_N;
+
+      Build_Q : Build_Queues.Queue;
+      Current, Next : Build_Elements;
+      Button_Map_Key : Button_Map_Keys;
+      Door_Code_List : Door_Code_Lists.List := Door_Code_Lists.Empty_List;
+      Door_Count_Map : Count_Maps.Map;
+
+   begin -- Sequence_2
+      Build_Q.Enqueue (Start_Build);
+      while Build_Q.Current_Use > 0 loop
+         Build_Q.Dequeue (Current);
+         if Current.Index >= Length (Code_In) then
+            Append (Door_Code_List, Current.Code);
+         else
+            Next.Index := Current.Index + 1;
+            if Current.Index = 0 then
+               Button_Map_Key.Start := 'A';
+            else
+               Button_Map_Key.Start :=
+                 Element (Code_In, Current.Index);
+            end If; -- Current.Index = 0
+            Button_Map_Key.Finish :=
+              Element (Code_In, Next.Index);
+            for F in First_Directions loop
+               if Length (Door_Map (Button_Map_Key) (F)) > 0 then
+                  Next.Code := Current.Code & Door_Map (Button_Map_Key) (F);
+                  Build_Q.Enqueue (Next);
+               end if; -- Length (Door_Map (Button_Map_Key) (F)) > 0
+            end loop; -- F in First_Directions
+         end if; -- Current.Index >= Length (Code_In
+      end loop; -- Build_Q.Current_Use > 0
+      Put_Line (Code_In & Door_Code_List'Img);
+      for C in Iterate (Door_Code_List) loop
+         To_Count_Map (Element (C), Door_Count_Map);
+         Put_Line (Element (C) & Door_Count_Map'Img);
+      end loop; -- C in Iterate (Door_Code_List)
+   end Sequence_2;
+
    Code_List : Code_Lists.List;
    Door_Map, Remote_Map : Button_Maps.Map;
    Door_Command_Q : aliased Command_Queues.Queue;
    Robot_Array : array (Robot_Indices) of Do_Robot;
+   Part_Two_Robot : Do_Robot;
+   Part_Two_In_Q, Part_Two_Out_Q : aliased Command_Queues.Queue;
    Link_Array : array (Robot_Indices) of aliased Command_Queues.Queue;
    Sum : Natural := 0;
 
@@ -553,17 +695,14 @@ begin -- December_21
    end loop; -- C in Iterate (Code_List)
    Put_Line ("Part one:" & Sum'Img);
    DJH.Execution_Time.Put_CPU_Time;
-   Sum := 0;
-   for R in Robot_Indices range 3 .. Robot_Indices'Last loop
-      Robot_Array (R).Start (Remote_Map, Link_Array (R - 1)'Access,
-                             Link_Array (R)'Access);
-   end loop; -- R in Robot_Indices range 3 .. Robot_Indices'Last
+   Part_Two_Robot.Start (Remote_Map,Part_Two_In_Q'Access,
+                         Part_Two_Out_Q'Access);
    for C in Iterate (Code_List) loop
-      Sequence (Door_Map, Door_Command_Q, Link_Array (Robot_Indices'Last),
-                Code_List (C));
-      Sum := @ + Complexity (Element (C));
+      Sequence_2 (Door_Map, Element (C).Door_Code, Part_Two_In_Q,
+                  Part_Two_Out_Q);
    end loop; -- C in Iterate (Code_List)
    Put_Line ("Part two:");
    DJH.Execution_Time.Put_CPU_Time;
    Door_Command_Q.Enqueue (Stop_Command);
+   Part_Two_In_Q.Enqueue (Stop_Command);
 end December_21;
