@@ -549,22 +549,18 @@ procedure December_21 is
         Ada.Containers.Ordered_Maps (Codes, Count_Maps.Map);
       use Cost_Maps;
 
-      Direction_Keys : constant Character_Set := To_Set ("<>^v");
-
       procedure To_Count_Map (Code : in Codes;
                               Count_Map : out Count_Maps.Map) is
 
+         A_Set : constant Character_Set := To_Set ("A");
          Start_At, First : Positive;
          Last : Natural;
 
       begin -- To_Count_Map
          Clear (Count_Map);
          Start_At := 1;
-         loop -- process one sub sequence ending in 'A'
-            Find_Token (Code, Direction_Keys, Start_At, Inside, First,
-                        Last);
-            exit when Last = 0;
-            Start_At := Last + 1;
+         while Start_At < Length (Code) loop
+            Find_Token (Code, A_Set, Start_At, Outside, First, Last);
             if Contains (Count_Map, Unbounded_Slice (Code, First, Last + 1))
             then
                Count_Map (Unbounded_Slice (Code, First, Last + 1)) :=
@@ -572,7 +568,18 @@ procedure December_21 is
             else
                Insert (Count_Map, Unbounded_Slice (Code, First, Last + 1), 1);
             end if; -- Contains (Count_Map, Unbounded_Slice (Code ...
-         end loop; -- process one sub sequence ending in 'A'
+            Start_At := Last + 2;
+            if Start_At < Length (Code) and then
+              Element (Code, Start_At) = 'A' then
+               -- Consecutive acknoledges, assumption "AAA" cannot occur
+               if Contains (Count_Map, To_Unbounded_String ("A")) then
+                  Count_Map (To_Unbounded_String ("A")) :=
+                    Count_Map (To_Unbounded_String ("A")) + 1;
+               else
+                  Insert (Count_Map, To_Unbounded_String ("A"), 1);
+               end if; -- Contains (Count_Map, To_Unbounded_String ("A"))
+            end if; -- Start_At < Length (Code) and then ...
+         end loop; -- Start_At < Length (Code)
       end To_Count_Map;
 
       procedure Do_Robot_N (Level : in Natural;
