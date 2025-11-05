@@ -26,7 +26,15 @@ procedure December_24 is
    subtype Logic_Drives is Logic_Levels range 0 .. 1;
    Undefined : constant Logic_Levels := -1;
 
-   subtype Names is Unbounded_String;
+   subtype Names is String (1 .. 3);
+
+   subtype Input_Identifiers is Character range 'x' .. 'y';
+
+   type Count_Arrays is array (Input_Identifiers,  Bit_Numbers) of Natural;
+
+   package Histogram_Stores is new
+     Ada.Containers.Ordered_Maps (Names, Count_Arrays);
+   use Histogram_Stores;
 
    type Input_Indices is (In_Left, In_Right);
    type Input_Arrays is array (Input_Indices) of Logic_Levels;
@@ -69,10 +77,6 @@ procedure December_24 is
    package Output_Lists is new Ada.Containers.Ordered_Sets (Names);
    use Output_Lists;
 
-   type Swap_Pairs is record
-      Left, Right : Names;
-   end record; -- Swap_Pairs
-
    type Input_States is record
       X, Y : Output_Values;
    end record; -- Input_States
@@ -87,6 +91,27 @@ procedure December_24 is
    use Gate_Sets;
 
    type Tests is access function (X, Y : in Output_Values) return Output_Values;
+
+   -- Full Adder
+   -- Cn-1 -------
+   --             XOR -- Zn
+   -- Xn        +-
+   --   XOR_1 --+
+   -- Yn        +-
+   --             AND_2 -+
+   -- Cn-1--------       +-
+   --                      OR -- Cn
+   -- Xn                 +-
+   --   AND_1 -----------+
+   -- Yn
+
+   type Full_Adders is record
+      XOR_1, AND_1, Zn, AND_2, C_In, Cn : Names;
+   end record; -- Full_Adders
+
+   package Adder_Tables is new
+     Ada.Containers.Ordered_Maps (Bit_Numbers, Full_Adders);
+   use Adder_Tables;
 
    procedure Read_Input (Input_List : out Input_Lists.Map;
                          Gate_Store : out Gate_Stores.Map;
@@ -120,7 +145,7 @@ procedure December_24 is
       while Length (Text) > 0 loop
          Start_At := 1;
          Find_Token (Text, Delimiters, Start_At, Outside, First, Last);
-         Name := Unbounded_Slice (Text, First, Last);
+         Name := Slice (Text, First, Last);
          Start_At := Last + 1;
          Find_Token (Text, Delimiters, Start_At, Outside, First, Last);
          Input_State := Logic_Drives'Value (Slice (Text, First, Last));
@@ -131,7 +156,7 @@ procedure December_24 is
          Get_Line (Input_File, Text);
          Start_At := 1;
          Find_Token (Text, Delimiters, Start_At, Outside, First, Last);
-         Source (In_Left) := Unbounded_Slice (Text, First, Last);
+         Source (In_Left) := Slice (Text, First, Last);
          Start_At := Last + 1;
          Find_Token (Text, Delimiters, Start_At, Outside, First, Last);
          if Slice (Text, First, Last) = "AND" then
@@ -146,13 +171,13 @@ procedure December_24 is
          end if; -- Slice (Text, First, Last) = "AND"
          Start_At := Last + 1;
          Find_Token (Text, Delimiters, Start_At, Outside, First, Last);
-         Source (In_Right) := Unbounded_Slice (Text, First, Last);
+         Source (In_Right) := Slice (Text, First, Last);
          Start_At := Last + 1;
          Find_Token (Text, Delimiters, Start_At, Outside, First, Last);
-         Name := Unbounded_Slice (Text, First, Last);
+         Name := Slice (Text, First, Last);
          Insert (Gate_Store, Name, State_Variable);
          Gate_Store (Name).Gate := Gate;
-         if Element (Name, 1) = 'z' then
+         if Name (1) = 'z' then
             Insert (Output_List, Name);
          end if; -- Element (Name, 1) = 'z'
          for I in Input_Indices loop
@@ -165,6 +190,90 @@ procedure December_24 is
       end loop; -- not End_Of_File (Input_File)
       Close (Input_File);
    end Read_Input;
+
+   function Get_Bit_Number (Name : in Names) return Bit_Numbers is
+
+   begin -- Get_Bit_Number
+      if Name (1) /= 'x' and Name (1) /= 'y' and Name (1) /= 'z' then
+         raise Program_Error with "not a register name """ & Name & '"';
+      end if; -- Get_Bit_Number
+      return Bit_Numbers'Value (Name (2 .. 3));
+   end Get_Bit_Number;
+
+   procedure Build_Histogram (Output_List : in Output_Lists.Set;
+                              Source_Map : in Source_Maps.Map;
+                              Histogram_Store : out Histogram_Stores.Map) is
+
+      procedure Search (Name : in Names;
+                        Source_Map : in Source_Maps.Map;
+                        Count_Array : in out Count_Arrays) is
+
+      begin -- Search
+         if Source_Map (Name) (In_Left) (1) = 'x' or
+           Source_Map (Name) (In_Left) (1) = 'y' then
+            Count_Array (Source_Map (Name) (In_Left) (1),
+                         Get_Bit_Number (Source_Map (Name) (In_Left))) := @ + 1;
+         else
+            Search (Source_Map (Name) (In_Left), Source_Map, Count_Array);
+         end if; -- Source_Map (Name) (In_Left) (1) = 'x' or ...
+         if Source_Map (Name) (In_Right) (1) = 'x' or
+           Source_Map (Name) (In_Right) (1) = 'y' then
+            Count_Array (Source_Map (Name) (In_Right) (1),
+                         Get_Bit_Number (Source_Map (Name) (In_Right)))
+              := @ + 1;
+         else
+            Search (Source_Map (Name) (In_Right), Source_Map, Count_Array);
+         end if; -- Source_Map (Name) (In_Left) (1) = 'x' or ...
+      end Search;
+
+   begin -- Build_Histogram
+      Clear (Histogram_Store);
+      for O in Iterate (Output_List) loop
+         Insert (Histogram_Store, Element (O),
+                 ('x' => (others => 0), 'y' => (others => 0)));
+         Search (Element (O), Source_Map, Histogram_Store (Element (O)));
+      end loop; -- O in Iterate (Output_List)
+   end Build_Histogram;
+
+   procedure Put (Histogram_Store : in Histogram_Stores.Map;
+                  Output_List : in Output_Lists.Set;
+                  Failed_Gate_Set : in Gate_Sets.Set) is
+
+      package Bit_Io is new Ada.Text_IO.Integer_IO (Bit_Numbers);
+      use Bit_IO;
+
+      Field : constant Positive := 3;
+
+      -- Bit     bb bb
+      -- znn * x nn nn
+      --       y nn nn
+
+   begin -- Put
+      Put ("Bit    ");
+      for B in Bit_Numbers range 0 ..
+        Get_Bit_Number (Last_Element (Output_List)) loop
+         Put (B, 3);
+      end loop;
+      New_Line;
+      for O in Iterate (Output_List) loop
+         if Contains (Failed_Gate_Set, Element (O)) then
+            Put (Element (O) & " * x");
+         else
+            Put (Element (O) & "   x");
+         end if; -- Contains (Failed_Gate_Set, Element (O))
+         for B in Bit_Numbers range 0 ..
+           Get_Bit_Number (Last_Element (Output_List)) loop
+            Put (Histogram_Store (Element (O)) ('x', B), 3);
+         end loop; -- B in Bit_Numbers range 0 ...
+         New_Line;
+         Put ("      y");
+         for B in Bit_Numbers range 0 ..
+           Get_Bit_Number (Last_Element (Output_List)) loop
+            Put (Histogram_Store (Element (O)) ('y', B), 3);
+         end loop; -- B in Bit_Numbers range 0 ...
+         New_Line;
+      end loop; -- O in Iterate (Output_List)
+   end Put;
 
    procedure Evaluate (Input_List : in Input_Lists.Map;
                        Gate_Store :  in out Gate_Stores.Map;
@@ -259,10 +368,9 @@ procedure December_24 is
 
    begin -- Input_Register
       for I in Iterate (Input_List) loop
-         if Element (Key (I), 1) = Register and then Element (I) = 1 then
-            Result := @ or
-              Shift_Left (Mask, Bit_Numbers'Value (Slice (Key (I), 2, 3)));
-         end if; -- Element (Key (I), 1) = Register and then Element (I) = 1
+         if Key (I) (1) = Register and then Element (I) = 1 then
+            Result := @ or Shift_Left (Mask, Get_Bit_Number (Key (I)));
+         end if; -- Key (I) (1) = Register and then Element (I) = 1
       end loop; -- I in Iterate (Input_List)
       return Result;
    end Input_Register;
@@ -276,25 +384,155 @@ procedure December_24 is
    begin -- Output_Register
       for O in Iterate (Output_List) loop
          if Gate_Store (Element (O)).Out_State = 1 then
-            Result := @ or
-              Shift_Left (Mask, Bit_Numbers'Value (Slice (Element (O), 2, 3)));
+            Result := @ or Shift_Left (Mask, Get_Bit_Number (Element (O)));
          end if; -- Gate_Store (Element (O)).Out_State = 1
       end loop; -- O in Iterate (Output_List)
       return Result;
    end Output_Register;
 
-   function Build_Name (Base_Name : in character;
+   function Build_Name (Base_Name : in Character;
                         Number : in Bit_Numbers)
-                           return Unbounded_String is
+                        return Names is
+
+      Result : Names;
 
    begin -- Build_Name
-      if Number < 10 then
-         return To_Unbounded_String (Base_Name & "0" &
-                                       Trim (Number'Img, Left));
-      else
-         return To_Unbounded_String (Base_Name & Trim (Number'Img, Left));
-      end if; -- Number < 10
+      Result (1) := Base_Name;
+      Result (2) := Character'Enum_Val (Character'Pos ('0') + Number / 10);
+      Result (3) := Character'Enum_Val (Character'Pos ('0') + Number mod 10);
+      return Result;
    end Build_Name;
+
+   procedure Build_Adder_Table (Input_List : in out Input_Lists.Map;
+                                Gate_Store : in out Gate_Stores.Map;
+                                Target_Map : in out Target_Maps.Map;
+                                Output_List : in Output_Lists.Set;
+                                Source_Map : in Source_Maps.Map;
+                                Adder_Table : out Adder_Tables.Map) is
+
+      function Other_Input (Target_Element : in Target_Elements;
+                            Source_Map : in Source_Maps.Map) return Names is
+
+      begin -- Other_Input
+         if Contains (Source_Map, Target_Element.Name) then
+            if Target_Element.Input_Index = In_Left then
+               return Source_Map (Target_Element.Name) (In_Right);
+            elsif Target_Element.Input_Index = In_Right then
+               return Source_Map (Target_Element.Name) (In_Left);
+            else
+               raise Program_Error with "Invalid target index";
+            end if; -- Target_Element.Input_Index = In_Left
+         else
+            raise Program_Error with "Invalid target name """ &
+              Target_Element.Name & '"';
+         end if; -- Contains (Source_Map, Target_Element.Name)
+      end Other_Input;
+
+      Init : constant Names := "---";
+      Full_Adder : constant Full_Adders := (Init, Init, Init, Init, Init, Init);
+      Xn, Yn, C_In : Names;
+      N : Bit_Numbers;
+
+   begin -- Build_Adder_Table
+      -- Assumption that x and y registers are the same width
+      for I in Iterate (Input_List) loop
+         if Key (I) (1) = 'x' then
+            Insert (Adder_Table, Get_Bit_Number (Key (I)), Full_Adder);
+         end if; -- I in Iterate (Input_List)
+      end loop; -- I in Iterate (Input_List)
+      for Nc in Iterate (Adder_Table) loop
+         -- Find XOR_1 and AND_1
+         N := Key (Nc);
+         Xn := Build_Name ('x', N);
+         Yn := Build_Name ('y', N);
+         for T in Iterate (Target_Map (Xn)) loop
+            if Other_Input (Element (T), Source_Map) = Yn then
+               if Gate_Store (Element (T).Name).Gate = Xor_Gate then
+                  Adder_Table (Nc).XOR_1 := Element (T).Name;
+               elsif Gate_Store (Element (T).Name).Gate = And_Gate then
+                  Adder_Table (Nc).AND_1 := Element (T).Name;
+               else
+                  Put_Line ("Unexpected gate " & Xn & " " & Yn & " " &
+                              Gate_Store (Element (T).Name).Gate'Img);
+               end if; -- Gate_Store (Element (T).Name).Gate = Xor_Gate
+            else
+               Put_Line ("Expected " & Yn & " and found " &
+                           Other_Input (Element (T), Source_Map));
+            end if; -- Other_Input (Element (T), Source_Map) = Yn
+         end loop; -- T in Iterate (Target_Map (Xn))
+      end loop; -- Nc in Iterate (Adder_Table)
+      for Nc in Iterate (Adder_Table) loop
+         if Key (Nc) = 0 then
+            -- Fix bit 00 carry
+            Adder_Table (Nc).Cn := Adder_Table (Nc).AND_1;
+            Adder_Table (Nc).AND_1 := Init;
+         else
+            -- Find Zn, AND_2 and Cn
+            C_In := Adder_Table (Key (Nc) - 1).Cn;
+            if Contains (Target_Map, Element (Nc).XOR_1) then
+               -- Find  Zn and AND_2
+               if C_In = Init and then
+                 Length (Target_Map (Element (Nc).XOR_1)) = 2 and then
+                 Other_Input (First_Element (Target_Map (Element (Nc).XOR_1)),
+                              Source_Map) =
+                 Other_Input (Last_Element (Target_Map (Element (Nc).XOR_1)),
+                              Source_Map) then
+                  -- Probable C_In
+                  C_In :=
+                    Other_Input (First_Element (Target_Map (Element (Nc).XOR_1)),
+                                 Source_Map);
+               end if; -- C_In = Init and then ...
+               Adder_Table (Nc).C_In := C_In;
+               for T in Iterate (Target_Map (Element (Nc).XOR_1)) loop
+                  if Other_Input (Element (T), Source_Map) = C_in then
+                     if Contains (Gate_Store, Element (T).Name) then
+                        if Gate_Store (Element (T).Name).Gate = Xor_Gate then
+                           Adder_Table (Nc).Zn := Element (T).Name;
+                        elsif Gate_Store (Element (T).Name).Gate = And_Gate then
+                           Adder_Table (Nc).AND_2 := Element (T).Name;
+                        else
+                           Put_Line ("Unexpected gate " & Element (Nc).XOR_1 &
+                                       " " & C_In & " " &
+                                       Gate_Store (Element (T).Name).Gate'Img);
+                        end if; -- Gate_Store (Element (T).Name).Gate = Xor_Gate
+                     end if; -- Contains (Gate_Store, Element (T).Name)
+                  end if; -- Gate_Store (Element (T).Name).Gate = Xor_Gate
+               end loop; -- T in Iterate (Target_Map (Element (Nc).XOR_1)))
+            end if; -- Contains (Target_Map, Element (Nc).XOR_1)
+            -- Find Cn
+            if Contains (Target_Map, Element (Nc).AND_1) then
+               -- If the adder is correctly structured there should only be one
+               -- target, will allow for additional targets.
+               for T in Iterate (Target_Map (Element (Nc).AND_1)) loop
+                  if Other_Input (Element (T), Source_Map) =
+                    Element (Nc).AND_2 and then
+                    Contains (Gate_Store, Element (T).Name) and then
+                    Gate_Store (Element (T).Name).Gate = OR_Gate then
+                     Adder_Table (Nc).Cn := Element (T).Name;
+                  end if; -- Other_Input (Element (T), Source_Map) = ...
+               end loop; -- T in Iterate (Target_Map (Element (Nc).AND_1))
+            end if; -- Contains (Target_Map, Element (Nc).AND_1)
+         end if; -- Key (Nc) = 0
+      end loop; -- Nc in Iterate (Adder_Table)
+   end Build_Adder_Table;
+
+   procedure Put (Adder_Table : in Adder_Tables.Map) is
+
+      --     XOR_1 AND_1    Zn AND_2  C_in    Cn
+      -- znn   aaa   bbb   ccc   ddd   eee   fff
+
+      Spacer : constant String := "   ";
+
+   begin -- Put
+      Put_Line ("    XOR_1 AND_1    Zn AND_2  C_in    Cn");
+      for A in Iterate (Adder_Table) loop
+         Put_Line (Build_Name ('z', Key (A)) & Spacer & Element (A).XOR_1 &
+                     Spacer & Element (A).AND_1 & Spacer & Element (A).Zn &
+                     Spacer & Element (A).AND_2 & Spacer & Element (A).C_In &
+                     Spacer & Element (A).Cn);
+      end loop; -- A in Iterate (Adder_Table)
+      New_Line;
+   end Put;
 
    Procedure Repair (Input_List : in out Input_Lists.Map;
                      Gate_Store : in out Gate_Stores.Map;
@@ -321,10 +559,9 @@ procedure December_24 is
 
          begin -- Find_MSB
             for I in Iterate (Input_List) loop
-               if Element (Key (I), 1) = 'x' and then
-                 Bit_Numbers'Value (Slice (Key (I), 2, 3)) > MSB then
-                  MSB := Bit_Numbers'Value (Slice (Key (I), 2, 3));
-               end if; -- Element (Key (I), 1) = 'x' and then ...
+               if Key (I) (1) = 'x' and then Get_Bit_Number (Key (I)) > MSB then
+                  MSB := Get_Bit_Number (Key (I));
+               end if; -- Key (I) (1) = 'x' ...
             end loop; -- I in Iterate (Input_List)
             return MSB;
          end Find_MSB;
@@ -396,29 +633,25 @@ procedure December_24 is
 
          begin -- Set_Registers
             for I in Iterate (Input_List) loop
-               case Element (Key (I), 1) is
+               case Key (I) (1) is
                when 'x' =>
                   if (Input_State.X and
-                        Shift_Left (Mask,
-                                    Bit_Numbers'Value (Slice (Key (I), 2, 3))))
-                      = 0 then
+                        Shift_Left (Mask, Get_Bit_Number (Key (I)))) = 0 then
                      Input_List (I) := 0;
                   else
                      Input_List (I) := 1;
                   end if; -- (Input_State.X and ...
                when 'y' =>
                   if (Input_State.Y and
-                        Shift_Left (Mask,
-                                    Bit_Numbers'Value (Slice (Key (I), 2, 3))))
-                      = 0 then
+                        Shift_Left (Mask, Get_Bit_Number (Key (I)))) = 0 then
                      Input_List (I) := 0;
                   else
                      Input_List (I) := 1;
                   end if; -- (Input_State.Y and ...
                   when others =>
                      raise Program_Error with "Unknown input register '" &
-                       Element (Key (I), 1) & "'";
-               end case; -- Element (Key (I), 1)
+                       Key (I) (1) & "'";
+               end case; -- Key (I) (1)
             end loop; -- I in Iterate (Input_List)
          end Set_Registers;
 
@@ -441,17 +674,14 @@ procedure December_24 is
          if Failed_Bits > 0 then
             for O in Iterate (Output_List) loop
                if (Failed_Bits and
-                     Shift_Left (Mask,
-                                 Bit_Numbers'Value (Slice (Element (O), 2, 3))))
-                   /= 0 then
+                     Shift_Left (Mask, Get_Bit_Number (Element (O)))) /= 0 then
                   Include (Failed_Gate_Set, Element (O));
                end if; -- (Failed_Bits and Shift_Left (1, N)) /= 0
             end loop; -- N in Bit_Numbers range 0 .. MSB + 1
          end if; -- Failed_Bits = 0
       end Subset_Tester;
 
-      procedure Find_Swapable (Gate_Store : in Gate_Stores.Map;
-                               Source_Map : in Source_Maps.Map;
+      procedure Find_Swapable (Source_Map : in Source_Maps.Map;
                                Failed_Gate_Set : in Gate_Sets.Set;
                                Swappable_Gate_Set : out Gate_Sets.Set) is
 
@@ -477,78 +707,137 @@ procedure December_24 is
          while Gate_Q.Current_Use > 0 loop
             Gate_Q.Dequeue (Name);
             insert (Swappable_Gate_Set, Name);
-            if Element (Source_Map (Name) (In_Left), 1) /= 'x' and
-              Element (Source_Map (Name) (In_Left), 1) /= 'y' then
+            if Source_Map (Name) (In_Left) (1) /= 'x' and
+              Source_Map (Name) (In_Left) (1) /= 'y' then
                Gate_Q.Enqueue (Source_Map (Name) (In_Left));
-            end if; -- Element (Source_Map (Name) (In_Left), 1) /= 'x' and ...
-            if Element (Source_Map (Name) (In_Right), 1) /= 'x' and
-              Element (Source_Map (Name) (In_Right), 1) /= 'y' then
+            end if; -- Source_Map (Name) (In_Left) (1) /= 'x' and ...
+            if Source_Map (Name) (In_Right) (1) /= 'x' and
+              Source_Map (Name) (In_Right) (1) /= 'y' then
                Gate_Q.Enqueue (Source_Map (Name) (In_Right));
             end if; -- Element (Source_Map (Name) (In_Right), 1) /= 'x'
          end loop; -- Gate_Q.Current_Use > 0
       end Find_Swapable;
 
-      procedure Swap (Swap_Pair : in Swap_Pairs;
+      procedure Find_Gate (Output : in Names;
+                           N : in Bit_Numbers;
+                           Target_Map : in Target_Maps.Map;
+                           Source_Map : in Source_Maps.Map;
+                           Selected_Gates : out Gate_Sets.Set) is
+
+         Gates_Using_X, Gates_Using_Y : Gate_Sets.Set := Gate_Sets.Empty_Set;
+         X_N : constant Names := Build_Name ('x', N);
+         Y_N : constant Names := Build_Name ('y', N);
+
+      begin -- Find_Gate
+         Find_Swapable (Source_Map, To_Set (Output), Selected_Gates);
+         for G in Iterate (Target_Map (X_N)) loop
+            insert (Gates_Using_X, Element (G).Name);
+         end loop; -- G in Iterate (Target_Map (X_N))
+         for G in Iterate (Target_Map (Y_N)) loop
+            insert (Gates_Using_Y, Element (G).Name);
+         end loop; -- G in Iterate (Target_Map (Y_N))
+         Intersection (Selected_Gates, Gates_Using_X);
+         Intersection (Selected_Gates, Gates_Using_Y);
+      end Find_Gate;
+
+      procedure Swap (Left, Right : in Names;
                       Gate_Store : in out Gate_Stores.Map;
                       Target_Map : in out Target_Maps.Map;
-                      Source_Map : in out Source_Maps.Map) is
+                      Source_Map : in out Source_Maps.Map;
+                      Swppped_Gate_Set : in out Gate_Sets.Set) is
 
          -- Swaps two Left and Right gate outputs. This is done by swapping
          -- inputs in the Target_Map and swapping the function in the
          -- Gate_Store;
 
          Left_Left_Input : constant Names
-           := Source_Map (Swap_Pair.Left) (In_Left);
+           := Source_Map (Left) (In_Left);
          Left_Right_Input : constant Names
-           := Source_Map (Swap_Pair.Left) (In_Right);
+           := Source_Map (Left) (In_Right);
          Right_Left_Input : constant Names
-           := Source_Map (Swap_Pair.Right) (In_Left);
+           := Source_Map (Right) (In_Left);
          Right_Right_Input : constant Names
-           := Source_Map (Swap_Pair.Right) (In_Right);
+           := Source_Map (Right) (In_Right);
          Temp : Gates;
 
       begin -- Swap
          -- Swap inputs, in Target_Map
-         Exclude (Target_Map (Left_Left_Input), (Swap_Pair.Left, In_Left));
-         Exclude (Target_Map (Left_Right_Input), (Swap_Pair.Left, In_Right));
-         Exclude (Target_Map (Right_Left_Input), (Swap_Pair.Right, In_Left));
-         Exclude (Target_Map (Right_Right_Input), (Swap_Pair.Right, In_Right));
-         Insert (Target_Map (Left_Left_Input), (Swap_Pair.Right, In_Left));
-         Insert (Target_Map (Left_Right_Input), (Swap_Pair.Right, In_Right));
-         Insert (Target_Map (Right_Left_Input), (Swap_Pair.Left, In_Left));
-         Insert (Target_Map (Right_Right_Input), (Swap_Pair.Left, In_Right));
+         Exclude (Target_Map (Left_Left_Input), (Left, In_Left));
+         Exclude (Target_Map (Left_Right_Input), (Left, In_Right));
+         Exclude (Target_Map (Right_Left_Input), (Right, In_Left));
+         Exclude (Target_Map (Right_Right_Input), (Right, In_Right));
+         Insert (Target_Map (Left_Left_Input), (Right, In_Left));
+         Insert (Target_Map (Left_Right_Input), (Right, In_Right));
+         Insert (Target_Map (Right_Left_Input), (Left, In_Left));
+         Insert (Target_Map (Right_Right_Input), (Left, In_Right));
          -- Swap inputs, in Source_Map
-         Source_Map (Swap_Pair.Left) (In_Left) := Right_Left_Input;
-         Source_Map (Swap_Pair.Left) (In_Right) := Right_Right_Input;
-         Source_Map (Swap_Pair.Right) (In_Left) := Left_Left_Input;
-         Source_Map (Swap_Pair.Right) (In_Right) := Left_Right_Input;
+         Source_Map (Left) (In_Left) := Right_Left_Input;
+         Source_Map (Left) (In_Right) := Right_Right_Input;
+         Source_Map (Right) (In_Left) := Left_Left_Input;
+         Source_Map (Right) (In_Right) := Left_Right_Input;
          -- Swap gate function in gate store
-         Temp := Gate_Store (Swap_Pair.Left).Gate;
-         Gate_Store (Swap_Pair.Left).Gate := Gate_Store (Swap_Pair.Right).Gate;
-         Gate_Store (Swap_Pair.Right).Gate := Temp;
+         Temp := Gate_Store (Left).Gate;
+         Gate_Store (Left).Gate := Gate_Store (Right).Gate;
+         Gate_Store (Right).Gate := Temp;
+         Include (Swppped_Gate_Set, Left);
+         Include (Swapped_Gate_Set, Right);
       end Swap;
 
-      Failed_Input_Set : Input_Sets.Set;
-      Failed_Gate_Set : Gate_Sets.Set;
-      Test_Failed_Input_Set : Input_Sets.Set;
-      Test_Failed_Gate_Set : Gate_Sets.Set;
+      Failed_Input_Set, Test_Failed_Input_Set : Input_Sets.Set;
+      Failed_Gate_Set, Test_Failed_Gate_Set : Gate_Sets.Set;
+      Histogram_Store : Histogram_Stores.Map;
       Swappable_Gate_Set : Gate_Sets.Set;
+      Lgc, Rgc : Gate_Sets.Cursor;
+      Adder_Table : Adder_Tables.Map;
 
    begin -- Repair
+      Clear (Swapped_Gate_Set);
       Tester (Input_List, Gate_Store, Target_Map, Output_List, Test,
               Failed_Input_Set, Failed_Gate_Set);
       Put_Line ("Failed_Input_Set:" & Failed_Input_Set'Img);
       Put_Line ("Failed_Gate_Set:" & Failed_Gate_Set'Img);
-      Find_Swapable (Gate_Store, Source_Map, Failed_Gate_Set,
-                     Swappable_Gate_Set);
-      Clear (Swapped_Gate_Set);
-      --  while not Is_Empty (Failed_Gate_Set) loop
-      --  end loop; -- not Is_Empty (Failed_Gate_Set)
-      Swap ((To_Unbounded_String ("z00"), To_Unbounded_String ("z05")), Gate_Store, Target_Map, Source_Map);
-      Swap ((To_Unbounded_String ("z01"), To_Unbounded_String ("z02")), Gate_Store, Target_Map, Source_Map);
+      Build_Adder_Table (Input_List, Gate_Store, Target_Map, Output_List,
+                         Source_Map, Adder_Table);
+      Put (Adder_Table);
+      Swap ("gjc", "qjj", Gate_Store, Target_Map, Source_Map, Swapped_Gate_Set);
       Tester (Input_List, Gate_Store, Target_Map, Output_List, Test,
-               Test_Failed_Input_Set, Test_Failed_Gate_Set);
-      Put_Line ("Failed_Gate_Set:" & Test_Failed_Gate_Set'Img);
+              Failed_Input_Set, Failed_Gate_Set);
+      Put_Line ("Failed_Input_Set:" & Failed_Input_Set'Img);
+      Put_Line ("Failed_Gate_Set:" & Failed_Gate_Set'Img);
+      Build_Adder_Table (Input_List, Gate_Store, Target_Map, Output_List,
+                         Source_Map, Adder_Table);
+      Put (Adder_Table);
+      Swap ("wmp", "z17", Gate_Store, Target_Map, Source_Map, Swapped_Gate_Set);
+      Tester (Input_List, Gate_Store, Target_Map, Output_List, Test,
+              Failed_Input_Set, Failed_Gate_Set);
+      Put_Line ("Failed_Input_Set:" & Failed_Input_Set'Img);
+      Put_Line ("Failed_Gate_Set:" & Failed_Gate_Set'Img);
+      Build_Adder_Table (Input_List, Gate_Store, Target_Map, Output_List,
+                         Source_Map, Adder_Table);
+      Put (Adder_Table);
+      Swap ("gvm", "z26", Gate_Store, Target_Map, Source_Map, Swapped_Gate_Set);
+      Tester (Input_List, Gate_Store, Target_Map, Output_List, Test,
+              Failed_Input_Set, Failed_Gate_Set);
+      Put_Line ("Failed_Input_Set:" & Failed_Input_Set'Img);
+      Put_Line ("Failed_Gate_Set:" & Failed_Gate_Set'Img);
+      Build_Adder_Table (Input_List, Gate_Store, Target_Map, Output_List,
+                         Source_Map, Adder_Table);
+      Put (Adder_Table);
+      Swap ("qsb", "z39", Gate_Store, Target_Map, Source_Map, Swapped_Gate_Set);
+      Tester (Input_List, Gate_Store, Target_Map, Output_List, Test,
+              Failed_Input_Set, Failed_Gate_Set);
+      Put_Line ("Failed_Input_Set:" & Failed_Input_Set'Img);
+      Put_Line ("Failed_Gate_Set:" & Failed_Gate_Set'Img);
+      Build_Adder_Table (Input_List, Gate_Store, Target_Map, Output_List,
+                         Source_Map, Adder_Table);
+      Put (Adder_Table);
+
+      --  Tester (Input_List, Gate_Store, Target_Map, Output_List, Test,
+      --          Test_Failed_Input_Set, Test_Failed_Gate_Set);
+      --  if not Is_Empty (Test_Failed_Gate_Set) then
+      --     Put_Line ("Failed verification, Failed_Gate_Set:" &
+      --                 Test_Failed_Gate_Set'Img);
+      --  end if; -- not Is_Empty (Test_Failed_Gate_Set)
    end Repair;
 
    function Test_add (X, Y : in Output_Values) return Output_Values is
