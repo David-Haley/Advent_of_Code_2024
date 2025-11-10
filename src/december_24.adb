@@ -23,18 +23,11 @@ procedure December_24 is
    type Gates is (And_Gate, Or_Gate, Xor_Gate);
 
    subtype Logic_Levels is Integer range -1 .. 1;
-   subtype Logic_Drives is Logic_Levels range 0 .. 1;
    Undefined : constant Logic_Levels := -1;
+   subtype Logic_Drives is Logic_Levels range 0 .. 1;
 
    subtype Names is String (1 .. 3);
-
-   subtype Input_Identifiers is Character range 'x' .. 'y';
-
-   type Count_Arrays is array (Input_Identifiers,  Bit_Numbers) of Natural;
-
-   package Histogram_Stores is new
-     Ada.Containers.Ordered_Maps (Names, Count_Arrays);
-   use Histogram_Stores;
+   Init : constant Names := "---";
 
    type Input_Indices is (In_Left, In_Right);
    type Input_Arrays is array (Input_Indices) of Logic_Levels;
@@ -43,8 +36,6 @@ procedure December_24 is
       Name : Names;
       Input_Index : Input_Indices;
    end record; -- Target_Elements
-
-   type Source_Arrays is array (Input_Indices) of Names;
 
    function "<" (Left, Right : Target_Elements) return Boolean is
      (Left.Name < Right.Name or (Left.Name = Right.Name and
@@ -56,6 +47,8 @@ procedure December_24 is
    package Target_Maps is new
      Ada.Containers.Ordered_Maps (Names, Target_Lists.Set);
    use Target_Maps;
+
+   type Source_Arrays is array (Input_Indices) of Names;
 
    package Source_Maps is new
      Ada.Containers.Ordered_Maps (Names, Source_Arrays);
@@ -77,18 +70,14 @@ procedure December_24 is
    package Output_Lists is new Ada.Containers.Ordered_Sets (Names);
    use Output_Lists;
 
-   type Input_States is record
-      X, Y : Output_Values;
-   end record; -- Input_States
-
-   function "<" (Left, Right : Input_States) return Boolean is
-      (Left.X < Right.X or (Left.X = Right.X and  Left.Y < Right.Y));
-
-   package Input_Sets is new Ada.Containers.Ordered_Sets (Input_States);
-   use Input_Sets;
-
    package Gate_Sets is new Ada.Containers.Ordered_Sets (Names);
    use Gate_Sets;
+
+   function Test_and (X, Y : in Output_Values) return Output_Values is
+     (X and Y);
+
+   function Test_add (X, Y : in Output_Values) return Output_Values is
+     (X + Y);
 
    type Tests is access function (X, Y : in Output_Values) return Output_Values;
 
@@ -200,81 +189,6 @@ procedure December_24 is
       return Bit_Numbers'Value (Name (2 .. 3));
    end Get_Bit_Number;
 
-   procedure Build_Histogram (Output_List : in Output_Lists.Set;
-                              Source_Map : in Source_Maps.Map;
-                              Histogram_Store : out Histogram_Stores.Map) is
-
-      procedure Search (Name : in Names;
-                        Source_Map : in Source_Maps.Map;
-                        Count_Array : in out Count_Arrays) is
-
-      begin -- Search
-         if Source_Map (Name) (In_Left) (1) = 'x' or
-           Source_Map (Name) (In_Left) (1) = 'y' then
-            Count_Array (Source_Map (Name) (In_Left) (1),
-                         Get_Bit_Number (Source_Map (Name) (In_Left))) := @ + 1;
-         else
-            Search (Source_Map (Name) (In_Left), Source_Map, Count_Array);
-         end if; -- Source_Map (Name) (In_Left) (1) = 'x' or ...
-         if Source_Map (Name) (In_Right) (1) = 'x' or
-           Source_Map (Name) (In_Right) (1) = 'y' then
-            Count_Array (Source_Map (Name) (In_Right) (1),
-                         Get_Bit_Number (Source_Map (Name) (In_Right)))
-              := @ + 1;
-         else
-            Search (Source_Map (Name) (In_Right), Source_Map, Count_Array);
-         end if; -- Source_Map (Name) (In_Left) (1) = 'x' or ...
-      end Search;
-
-   begin -- Build_Histogram
-      Clear (Histogram_Store);
-      for O in Iterate (Output_List) loop
-         Insert (Histogram_Store, Element (O),
-                 ('x' => (others => 0), 'y' => (others => 0)));
-         Search (Element (O), Source_Map, Histogram_Store (Element (O)));
-      end loop; -- O in Iterate (Output_List)
-   end Build_Histogram;
-
-   procedure Put (Histogram_Store : in Histogram_Stores.Map;
-                  Output_List : in Output_Lists.Set;
-                  Failed_Gate_Set : in Gate_Sets.Set) is
-
-      package Bit_Io is new Ada.Text_IO.Integer_IO (Bit_Numbers);
-      use Bit_IO;
-
-      Field : constant Positive := 3;
-
-      -- Bit     bb bb
-      -- znn * x nn nn
-      --       y nn nn
-
-   begin -- Put
-      Put ("Bit    ");
-      for B in Bit_Numbers range 0 ..
-        Get_Bit_Number (Last_Element (Output_List)) loop
-         Put (B, 3);
-      end loop;
-      New_Line;
-      for O in Iterate (Output_List) loop
-         if Contains (Failed_Gate_Set, Element (O)) then
-            Put (Element (O) & " * x");
-         else
-            Put (Element (O) & "   x");
-         end if; -- Contains (Failed_Gate_Set, Element (O))
-         for B in Bit_Numbers range 0 ..
-           Get_Bit_Number (Last_Element (Output_List)) loop
-            Put (Histogram_Store (Element (O)) ('x', B), 3);
-         end loop; -- B in Bit_Numbers range 0 ...
-         New_Line;
-         Put ("      y");
-         for B in Bit_Numbers range 0 ..
-           Get_Bit_Number (Last_Element (Output_List)) loop
-            Put (Histogram_Store (Element (O)) ('y', B), 3);
-         end loop; -- B in Bit_Numbers range 0 ...
-         New_Line;
-      end loop; -- O in Iterate (Output_List)
-   end Put;
-
    procedure Evaluate (Input_List : in Input_Lists.Map;
                        Gate_Store :  in out Gate_Stores.Map;
                        Target_Map : in Target_Maps.Map) is
@@ -362,7 +276,7 @@ procedure December_24 is
 
    function Input_Register (Input_List : in Input_Lists.Map;
                             Register : in Character)
-                               return Output_Values is
+                            return Output_Values is
 
       Result : Output_Values := 0;
 
@@ -411,7 +325,8 @@ procedure December_24 is
                                 Adder_Table : out Adder_Tables.Map) is
 
       function Other_Input (Target_Element : in Target_Elements;
-                            Source_Map : in Source_Maps.Map) return Names is
+                            Source_Map : in Source_Maps.Map)
+                            return Names is
 
       begin -- Other_Input
          if Contains (Source_Map, Target_Element.Name) then
@@ -428,7 +343,6 @@ procedure December_24 is
          end if; -- Contains (Source_Map, Target_Element.Name)
       end Other_Input;
 
-      Init : constant Names := "---";
       Full_Adder : constant Full_Adders := (Init, Init, Init, Init, Init, Init);
       Xn, Yn, C_In : Names;
       N : Bit_Numbers;
@@ -534,325 +448,264 @@ procedure December_24 is
       New_Line;
    end Put;
 
-   Procedure Repair (Input_List : in out Input_Lists.Map;
+   procedure Swap (Left, Right : in Names;
+                   Gate_Store : in out Gate_Stores.Map;
+                   Target_Map : in out Target_Maps.Map;
+                   Source_Map : in out Source_Maps.Map) is
+
+      -- Swaps Left and Right gate outputs. This is done by swapping inputs in
+      -- both the Target_Map and the Source_Map. The functions of the relevant
+      -- gates are swapped in the Gate_Store.
+
+      Left_Left_Input : constant Names
+        := Source_Map (Left) (In_Left);
+      Left_Right_Input : constant Names
+        := Source_Map (Left) (In_Right);
+      Right_Left_Input : constant Names
+        := Source_Map (Right) (In_Left);
+      Right_Right_Input : constant Names
+        := Source_Map (Right) (In_Right);
+      Temp : Gates;
+
+   begin -- Swap
+      -- Swap inputs, in Target_Map
+      Exclude (Target_Map (Left_Left_Input), (Left, In_Left));
+      Exclude (Target_Map (Left_Right_Input), (Left, In_Right));
+      Exclude (Target_Map (Right_Left_Input), (Right, In_Left));
+      Exclude (Target_Map (Right_Right_Input), (Right, In_Right));
+      Insert (Target_Map (Left_Left_Input), (Right, In_Left));
+      Insert (Target_Map (Left_Right_Input), (Right, In_Right));
+      Insert (Target_Map (Right_Left_Input), (Left, In_Left));
+      Insert (Target_Map (Right_Right_Input), (Left, In_Right));
+      -- Swap inputs, in Source_Map
+      Source_Map (Left) (In_Left) := Right_Left_Input;
+      Source_Map (Left) (In_Right) := Right_Right_Input;
+      Source_Map (Right) (In_Left) := Left_Left_Input;
+      Source_Map (Right) (In_Right) := Left_Right_Input;
+      -- Swap gate function in gate store
+      Temp := Gate_Store (Left).Gate;
+      Gate_Store (Left).Gate := Gate_Store (Right).Gate;
+      Gate_Store (Right).Gate := Temp;
+   end Swap;
+
+   procedure Tester (Input_List : in out Input_Lists.Map;
                      Gate_Store : in out Gate_Stores.Map;
-                     Target_Map : in out Target_Maps.Map;
+                     Target_Map : in Target_Maps.Map;
                      Output_List : in Output_Lists.Set;
                      Test : in Tests;
-                     Source_Map : in out Source_Maps.Map;
-                     Swapped_Gate_Set : out  Gate_Sets.Set) is
+                     Failed_Gate_Set : out Gate_Sets.Set) is
 
-      procedure Tester (Input_List : in out Input_Lists.Map;
-                        Gate_Store : in out Gate_Stores.Map;
-                        Target_Map : in Target_Maps.Map;
-                        Output_List : in Output_Lists.Set;
-                        Test : in Tests;
-                        Failed_Input_Set : out Input_Sets.Set;
-                        Failed_Gate_Set : out Gate_Sets.Set) is
+      -- Test input states of an adjacent pair of X and Y bits for each of 16
+      -- input states and reports outputs which are not correct.
 
-         -- Test input states of an adjacent pair of X and Y bits for each of 16
-         -- input states and reports outputs which are not correct.
+      function Find_MSB (Input_List : in Input_Lists.Map)
+                         return Bit_Numbers is
 
-         function Find_MSB (Input_List : in Input_Lists.Map) return Bit_Numbers is
+         MSB : Bit_Numbers := 0;
 
-            MSB : Bit_Numbers := 0;
+      begin -- Find_MSB
+         for I in Iterate (Input_List) loop
+            if Key (I) (1) = 'x' and then Get_Bit_Number (Key (I)) > MSB then
+               MSB := Get_Bit_Number (Key (I));
+            end if; -- Key (I) (1) = 'x' ...
+         end loop; -- I in Iterate (Input_List)
+         return MSB;
+      end Find_MSB;
 
-         begin -- Find_MSB
-            for I in Iterate (Input_List) loop
-               if Key (I) (1) = 'x' and then Get_Bit_Number (Key (I)) > MSB then
-                  MSB := Get_Bit_Number (Key (I));
-               end if; -- Key (I) (1) = 'x' ...
-            end loop; -- I in Iterate (Input_List)
-            return MSB;
-         end Find_MSB;
+      procedure Set_Registers (N : in Bit_Numbers;
+                               Xn, Xn_1, Yn, Yn_1 : in Logic_Drives;
+                               MSB : in Bit_Numbers;
+                               Input_List : in out Input_Lists.Map) is
 
-         procedure Set_Registers (N : in Bit_Numbers;
-                                  Xn, Xn_1, Yn, Yn_1 : in Logic_Drives;
-                                  MSB : in Bit_Numbers;
-                                  Input_List : in out Input_Lists.Map) is
+      begin -- Set_Registers
+         for I in Bit_Numbers range 0 .. MSB loop
+            Input_List (Build_Name ('x', I)) := 0;
+            Input_List (Build_Name ('y', I)) := 0;
+         end loop; -- N in Bit_Numbers range 0 .. MSB
+         -- set x and y registers to 0;
+         Input_List (Build_Name ('x', N)) := Xn;
+         Input_List (Build_Name ('x', N + 1)) := Xn_1;
+         Input_List (Build_Name ('y', N)) := Yn;
+         Input_List (Build_Name ('y', N + 1)) := Yn_1;
+         -- Test bits set
+      end Set_Registers;
 
-         begin -- Set_Registers
-            for I in Bit_Numbers range 0 .. MSB loop
-               Input_List (Build_Name ('x', I)) := 0;
-               Input_List (Build_Name ('y', I)) := 0;
-            end loop; -- N in Bit_Numbers range 0 .. MSB
-            -- set x and y registers to 0;
-            Input_List (Build_Name ('x', N)) := Xn;
-            Input_List (Build_Name ('x', N + 1)) := Xn_1;
-            Input_List (Build_Name ('y', N)) := Yn;
-            Input_List (Build_Name ('y', N + 1)) := Yn_1;
-            -- Test bits set
-         end Set_Registers;
+      MSB : constant Bit_Numbers := Find_MSB (Input_List);
+      X, Y, Z, Failed_Bits : Output_Values;
 
-         MSB : constant Bit_Numbers := Find_MSB (Input_List);
-         X, Y, Z, Failed_Bits : Output_Values;
+   begin -- Tester
+      Failed_Bits := 0;
+      Clear (Failed_Gate_Set);
+      for N in Bit_Numbers range 0 .. MSB - 1 loop
+         for Yn_1 in Logic_Drives loop
+            for Yn in Logic_Drives loop
+               for Xn_1 in Logic_Drives loop
+                  for Xn in Logic_Drives loop
+                     Set_Registers (N, Xn, Xn_1, Yn, Yn_1, MSB, Input_List);
+                     Evaluate (Input_List, Gate_Store, Target_Map);
+                     X := Input_Register (Input_List, 'x');
+                     Y := Input_Register (Input_List, 'y');
+                     Z := Test (X, Y);
+                     Failed_Bits := @ or
+                       (Z xor Output_Register (Output_List, Gate_Store));
+                  end loop; -- Xn in Logic_Drives
+               end loop; -- Xn_1 in Logic_Drives
+            end loop; -- Yn in Logic_Drives
+         end loop; -- Yn_1 in Logic_Drives
+      end loop; -- N in Bit_Numbers range 0 .. MSB - 1
+      if Failed_Bits /= 0 then
+         for N in Bit_Numbers range 0 .. MSB + 1 loop
+            if (Failed_Bits and Shift_Left (Mask, N)) /= 0 then
+               Include (Failed_Gate_Set, Build_Name ('z', N));
+            end if; -- (Failed_Bits and Shift_Left (Mask, N)) /= 0
+         end loop; -- N in Bit_Numbers range 0 .. MSB + 1
+      end if; -- Failed_Bits /= 0
+   end Tester;
 
-      begin -- Tester
-         Failed_Bits := 0;
-         Clear (Failed_Input_Set);
-         Clear (Failed_Gate_Set);
-         for N in Bit_Numbers range 0 .. MSB - 1 loop
-            for Yn_1 in Logic_Drives loop
-               for Yn in Logic_Drives loop
-                  for Xn_1 in Logic_Drives loop
-                     for Xn in Logic_Drives loop
-                        Set_Registers (N, Xn, Xn_1, Yn, Yn_1, MSB, Input_List);
-                        Evaluate (Input_List, Gate_Store, Target_Map);
-                        X := Input_Register (Input_List, 'x');
-                        Y := Input_Register (Input_List, 'y');
-                        Z := Test (X, Y);
-                        if Z /= Output_Register (Output_List, Gate_Store) then
-                           Include (Failed_Input_Set, (X, Y));
-                           Failed_Bits := @ or
-                             (Z xor Output_Register (Output_List, Gate_Store));
-                        end if; -- Z /= Output_Register (Gate_Store)
-                     end loop; -- Xn in Logic_Drives
-                  end loop; -- Xn_1 in Logic_Drives
-               end loop; -- Yn in Logic_Drives
-            end loop; -- Yn_1 in Logic_Drives
-         end loop; -- N in Bit_Numbers range 0 .. MSB - 1
-         if Failed_Bits > 0 then
-            for N in Bit_Numbers range 0 .. MSB + 1 loop
-               if (Failed_Bits and Shift_Left (1, N)) /= 0 then
-                  Include (Failed_Gate_Set, Build_Name ('z', N));
-               end if; -- (Failed_Bits and Shift_Left (1, N)) /= 0
-            end loop; -- N in Bit_Numbers range 0 .. MSB + 1
-         end if; -- Failed_Bits = 0
-      end Tester;
+   procedure Repair_And (Input_List : in out Input_Lists.Map;
+                         Gate_Store : in out Gate_Stores.Map;
+                         Target_Map : in out Target_Maps.Map;
+                         Output_List : in Output_Lists.Set;
+                         Source_Map : in out Source_Maps.Map;
+                         Swapped_Gate_Set : out  Gate_Sets.Set) is
 
-      procedure Subset_Tester (Input_List : in out Input_Lists.Map;
-                               Gate_Store : in out Gate_Stores.Map;
-                               Target_Map : in Target_Maps.Map;
-                               Output_List : in Output_Lists.Set;
-                               Test : in Tests;
-                               Failed_Input_Set : in Input_Sets.Set;
-                               Failed_Gate_Set : out Gate_Sets.Set) is
+      -- This only repairs example 3 in a reasonably generic way.
 
-         procedure Set_Registers (Input_State : in Input_States;
-                                  Input_List : in out Input_Lists.Map) is
-
-         begin -- Set_Registers
-            for I in Iterate (Input_List) loop
-               case Key (I) (1) is
-               when 'x' =>
-                  if (Input_State.X and
-                        Shift_Left (Mask, Get_Bit_Number (Key (I)))) = 0 then
-                     Input_List (I) := 0;
-                  else
-                     Input_List (I) := 1;
-                  end if; -- (Input_State.X and ...
-               when 'y' =>
-                  if (Input_State.Y and
-                        Shift_Left (Mask, Get_Bit_Number (Key (I)))) = 0 then
-                     Input_List (I) := 0;
-                  else
-                     Input_List (I) := 1;
-                  end if; -- (Input_State.Y and ...
-                  when others =>
-                     raise Program_Error with "Unknown input register '" &
-                       Key (I) (1) & "'";
-               end case; -- Key (I) (1)
-            end loop; -- I in Iterate (Input_List)
-         end Set_Registers;
-
-         X, Y, Z, Failed_Bits : Output_Values;
-
-      begin -- Subset_Tester
-         Failed_Bits := 0;
-         Clear (Failed_Gate_Set);
-         for I in Iterate (Failed_Input_Set) loop
-            Set_Registers (Element (I), Input_List);
-            Evaluate (Input_List, Gate_Store, Target_Map);
-            X := Input_Register (Input_List, 'x');
-            Y := Input_Register (Input_List, 'y');
-            Z := Test (X, Y);
-            if Z /= Output_Register (Output_List, Gate_Store) then
-               Failed_Bits := @ or
-                 (Z xor Output_Register (Output_List, Gate_Store));
-            end if; -- Z /= Output_Register (Gate_Store)
-         end loop; -- I in Iterate (Failed_Input_Set)
-         if Failed_Bits > 0 then
-            for O in Iterate (Output_List) loop
-               if (Failed_Bits and
-                     Shift_Left (Mask, Get_Bit_Number (Element (O)))) /= 0 then
-                  Include (Failed_Gate_Set, Element (O));
-               end if; -- (Failed_Bits and Shift_Left (1, N)) /= 0
-            end loop; -- N in Bit_Numbers range 0 .. MSB + 1
-         end if; -- Failed_Bits = 0
-      end Subset_Tester;
-
-      procedure Find_Swapable (Source_Map : in Source_Maps.Map;
-                               Failed_Gate_Set : in Gate_Sets.Set;
-                               Swappable_Gate_Set : out Gate_Sets.Set) is
-
-         -- Finds all gates which feed into any output that fails testing,
-         -- searches from output to inputs. Inputs are not teeated as swapable.
-
-         package Q_I is new
-           Ada.Containers.Synchronized_Queue_Interfaces (Names);
-         use Q_I;
-
-         package Queues is new
-           Ada.Containers.Unbounded_Synchronized_Queues (Q_I);
-         use Queues;
-
-         Name : Names;
-         Gate_Q : Queues.Queue;
-
-      begin -- Find_Swapable
-         Clear (Swappable_Gate_Set);
-         for F in Iterate (Failed_Gate_Set) loop
-            Gate_Q.Enqueue (Element (F));
-         end loop; -- F in Iterate (Failed_Gate_Set)
-         while Gate_Q.Current_Use > 0 loop
-            Gate_Q.Dequeue (Name);
-            insert (Swappable_Gate_Set, Name);
-            if Source_Map (Name) (In_Left) (1) /= 'x' and
-              Source_Map (Name) (In_Left) (1) /= 'y' then
-               Gate_Q.Enqueue (Source_Map (Name) (In_Left));
-            end if; -- Source_Map (Name) (In_Left) (1) /= 'x' and ...
-            if Source_Map (Name) (In_Right) (1) /= 'x' and
-              Source_Map (Name) (In_Right) (1) /= 'y' then
-               Gate_Q.Enqueue (Source_Map (Name) (In_Right));
-            end if; -- Element (Source_Map (Name) (In_Right), 1) /= 'x'
-         end loop; -- Gate_Q.Current_Use > 0
-      end Find_Swapable;
-
-      procedure Find_Gate (Output : in Names;
-                           N : in Bit_Numbers;
-                           Target_Map : in Target_Maps.Map;
-                           Source_Map : in Source_Maps.Map;
-                           Selected_Gates : out Gate_Sets.Set) is
-
-         Gates_Using_X, Gates_Using_Y : Gate_Sets.Set := Gate_Sets.Empty_Set;
-         X_N : constant Names := Build_Name ('x', N);
-         Y_N : constant Names := Build_Name ('y', N);
-
-      begin -- Find_Gate
-         Find_Swapable (Source_Map, To_Set (Output), Selected_Gates);
-         for G in Iterate (Target_Map (X_N)) loop
-            insert (Gates_Using_X, Element (G).Name);
-         end loop; -- G in Iterate (Target_Map (X_N))
-         for G in Iterate (Target_Map (Y_N)) loop
-            insert (Gates_Using_Y, Element (G).Name);
-         end loop; -- G in Iterate (Target_Map (Y_N))
-         Intersection (Selected_Gates, Gates_Using_X);
-         Intersection (Selected_Gates, Gates_Using_Y);
-      end Find_Gate;
-
-      procedure Swap (Left, Right : in Names;
-                      Gate_Store : in out Gate_Stores.Map;
-                      Target_Map : in out Target_Maps.Map;
-                      Source_Map : in out Source_Maps.Map;
-                      Swppped_Gate_Set : in out Gate_Sets.Set) is
-
-         -- Swaps two Left and Right gate outputs. This is done by swapping
-         -- inputs in the Target_Map and swapping the function in the
-         -- Gate_Store;
-
-         Left_Left_Input : constant Names
-           := Source_Map (Left) (In_Left);
-         Left_Right_Input : constant Names
-           := Source_Map (Left) (In_Right);
-         Right_Left_Input : constant Names
-           := Source_Map (Right) (In_Left);
-         Right_Right_Input : constant Names
-           := Source_Map (Right) (In_Right);
-         Temp : Gates;
-
-      begin -- Swap
-         -- Swap inputs, in Target_Map
-         Exclude (Target_Map (Left_Left_Input), (Left, In_Left));
-         Exclude (Target_Map (Left_Right_Input), (Left, In_Right));
-         Exclude (Target_Map (Right_Left_Input), (Right, In_Left));
-         Exclude (Target_Map (Right_Right_Input), (Right, In_Right));
-         Insert (Target_Map (Left_Left_Input), (Right, In_Left));
-         Insert (Target_Map (Left_Right_Input), (Right, In_Right));
-         Insert (Target_Map (Right_Left_Input), (Left, In_Left));
-         Insert (Target_Map (Right_Right_Input), (Left, In_Right));
-         -- Swap inputs, in Source_Map
-         Source_Map (Left) (In_Left) := Right_Left_Input;
-         Source_Map (Left) (In_Right) := Right_Right_Input;
-         Source_Map (Right) (In_Left) := Left_Left_Input;
-         Source_Map (Right) (In_Right) := Left_Right_Input;
-         -- Swap gate function in gate store
-         Temp := Gate_Store (Left).Gate;
-         Gate_Store (Left).Gate := Gate_Store (Right).Gate;
-         Gate_Store (Right).Gate := Temp;
-         Include (Swppped_Gate_Set, Left);
-         Include (Swapped_Gate_Set, Right);
-      end Swap;
-
-      Failed_Input_Set, Test_Failed_Input_Set : Input_Sets.Set;
       Failed_Gate_Set, Test_Failed_Gate_Set : Gate_Sets.Set;
-      Histogram_Store : Histogram_Stores.Map;
-      Swappable_Gate_Set : Gate_Sets.Set;
-      Lgc, Rgc : Gate_Sets.Cursor;
-      Adder_Table : Adder_Tables.Map;
+      GcL, GcR : Gate_Sets.Cursor;
+      Improved : Boolean;
 
-   begin -- Repair
+   begin -- Repair_And
       Clear (Swapped_Gate_Set);
-      Tester (Input_List, Gate_Store, Target_Map, Output_List, Test,
-              Failed_Input_Set, Failed_Gate_Set);
-      Put_Line ("Failed_Input_Set:" & Failed_Input_Set'Img);
-      Put_Line ("Failed_Gate_Set:" & Failed_Gate_Set'Img);
-      Build_Adder_Table (Input_List, Gate_Store, Target_Map, Output_List,
-                         Source_Map, Adder_Table);
-      Put (Adder_Table);
-      Swap ("gjc", "qjj", Gate_Store, Target_Map, Source_Map, Swapped_Gate_Set);
-      Tester (Input_List, Gate_Store, Target_Map, Output_List, Test,
-              Failed_Input_Set, Failed_Gate_Set);
-      Put_Line ("Failed_Input_Set:" & Failed_Input_Set'Img);
-      Put_Line ("Failed_Gate_Set:" & Failed_Gate_Set'Img);
-      Build_Adder_Table (Input_List, Gate_Store, Target_Map, Output_List,
-                         Source_Map, Adder_Table);
-      Put (Adder_Table);
-      Swap ("wmp", "z17", Gate_Store, Target_Map, Source_Map, Swapped_Gate_Set);
-      Tester (Input_List, Gate_Store, Target_Map, Output_List, Test,
-              Failed_Input_Set, Failed_Gate_Set);
-      Put_Line ("Failed_Input_Set:" & Failed_Input_Set'Img);
-      Put_Line ("Failed_Gate_Set:" & Failed_Gate_Set'Img);
-      Build_Adder_Table (Input_List, Gate_Store, Target_Map, Output_List,
-                         Source_Map, Adder_Table);
-      Put (Adder_Table);
-      Swap ("gvm", "z26", Gate_Store, Target_Map, Source_Map, Swapped_Gate_Set);
-      Tester (Input_List, Gate_Store, Target_Map, Output_List, Test,
-              Failed_Input_Set, Failed_Gate_Set);
-      Put_Line ("Failed_Input_Set:" & Failed_Input_Set'Img);
-      Put_Line ("Failed_Gate_Set:" & Failed_Gate_Set'Img);
-      Build_Adder_Table (Input_List, Gate_Store, Target_Map, Output_List,
-                         Source_Map, Adder_Table);
-      Put (Adder_Table);
-      Swap ("qsb", "z39", Gate_Store, Target_Map, Source_Map, Swapped_Gate_Set);
-      Tester (Input_List, Gate_Store, Target_Map, Output_List, Test,
-              Failed_Input_Set, Failed_Gate_Set);
-      Put_Line ("Failed_Input_Set:" & Failed_Input_Set'Img);
-      Put_Line ("Failed_Gate_Set:" & Failed_Gate_Set'Img);
-      Build_Adder_Table (Input_List, Gate_Store, Target_Map, Output_List,
-                         Source_Map, Adder_Table);
-      Put (Adder_Table);
+      Tester (Input_List, Gate_Store, Target_Map, Output_List, Test_and'Access,
+              Failed_Gate_Set);
+      while not Is_Empty (Failed_Gate_Set) loop
+         Put_Line ("Failed_Gate_Set:" & Failed_Gate_Set'Img);
+         GcL := First (Failed_Gate_Set);
+         loop -- Left swap gate
+            GcR := Next (Gcl);
+            loop -- Right swap gate
+               Swap (Element(GcL), Element (GcR), Gate_Store, Target_Map,
+                     Source_Map);
+               Tester (Input_List, Gate_Store, Target_Map, Output_List,
+                       Test_and'Access, Test_Failed_Gate_Set);
+               Improved := Length (Test_Failed_Gate_Set) <
+                 Length (Failed_Gate_Set) and
+                 Is_Subset ( Test_Failed_Gate_Set, Failed_Gate_Set);
+               if Improved then
+                  Include (Swapped_Gate_Set, Element (GcL));
+                  Include (Swapped_Gate_Set, Element (GcR));
+                  Put_Line ("Swapped " &  Element (GcL) & " and " &
+                              Element (GcR));
+                  Failed_Gate_Set := Copy (Test_Failed_Gate_Set);
+               else
+                  Swap (Element (GcR), Element(GcL), Gate_Store, Target_Map,
+                        Source_Map);
+               end if; -- Improved
+               exit when Improved or else Next (GcR) = Gate_Sets.No_Element;
+               Next (GcR);
+            end loop; -- Right swap gate
+            exit when Improved or else Next (Next (GcL)) = Gate_Sets.No_Element;
+            Next (GcL);
+         end loop; -- Right swap gate
+      end loop; -- not Is_Empty (Failed_Gate_Set)
+   end Repair_And;
 
-      --  Tester (Input_List, Gate_Store, Target_Map, Output_List, Test,
-      --          Test_Failed_Input_Set, Test_Failed_Gate_Set);
-      --  if not Is_Empty (Test_Failed_Gate_Set) then
-      --     Put_Line ("Failed verification, Failed_Gate_Set:" &
-      --                 Test_Failed_Gate_Set'Img);
-      --  end if; -- not Is_Empty (Test_Failed_Gate_Set)
-   end Repair;
+   procedure Repair_Adder (Input_List : in out Input_Lists.Map;
+                           Gate_Store : in out Gate_Stores.Map;
+                           Target_Map : in out Target_Maps.Map;
+                           Output_List : in Output_Lists.Set;
+                           Source_Map : in out Source_Maps.Map;
+                           Swapped_Gate_Set : out  Gate_Sets.Set) is
 
-   function Test_add (X, Y : in Output_Values) return Output_Values is
-      (X + Y);
+      procedure Find_Swappable (Failed_Gate_Set : in Gate_Sets.set;
+                                Adder_Table : in Adder_Tables.Map;
+                                Swappable_Gate_Set : out Gate_Sets.Set;
+                                To_Fix : out Gate_Sets.Set) is
 
-   function Test_and (X, Y : in Output_Values) return Output_Values is
-      (X and Y);
+         Bit_Number : Bit_Numbers :=
+           Get_Bit_Number (First_Element (Failed_Gate_Set));
+
+      begin -- Find_Swappable
+         Clear (Swappable_Gate_Set);
+         Clear (To_Fix);
+         while Bit_Number < Last_Key (Adder_Table) and then
+           (Contains (Failed_Gate_Set, Build_Name ('z', Bit_Number)) and
+              Contains (Failed_Gate_Set, Build_Name ('z', Bit_Number + 1))) loop
+            Include (Swappable_Gate_Set, Build_Name ('z', Bit_Number));
+            Include (Swappable_Gate_Set, Build_Name ('z', Bit_Number + 1));
+            Include (To_Fix, Build_Name ('z', Bit_Number));
+            Include (To_Fix, Build_Name ('z', Bit_Number + 1));
+            for B in Bit_Numbers range Bit_Number .. Bit_Number + 1 loop
+               Include (Swappable_Gate_Set, Adder_Table (B).XOR_1);
+               Include (Swappable_Gate_Set, Adder_Table (B).AND_1);
+               Include (Swappable_Gate_Set, Adder_Table (B).Zn);
+               Include (Swappable_Gate_Set, Adder_Table (B).AND_2);
+               Include (Swappable_Gate_Set, Adder_Table (B).C_In);
+               Include (Swappable_Gate_Set, Adder_Table (B).Cn);
+            end loop; -- B in Bit_Numbers range Bit_Number .. Bit_Number + 1
+            Bit_Number := @ + 1;
+         end loop; -- Bit_Number < Last_Key (Adder_Table) and then ...
+         Exclude (Swappable_Gate_Set, Init);
+      end Find_Swappable;
+
+      Failed_Gate_Set, Test_Failed_Gate_Set, Swappable_Gate_Set,
+      To_Fix : Gate_Sets.Set;
+      Adder_Table : Adder_Tables.Map;
+      GcL, GcR : Gate_Sets.Cursor;
+      Improved : Boolean;
+
+   begin -- Repair_Adder
+      Clear (Swapped_Gate_Set);
+      Tester (Input_List, Gate_Store, Target_Map, Output_List, Test_add'Access,
+              Failed_Gate_Set);
+      Build_Adder_Table (Input_List, Gate_Store, Target_Map, Output_List,
+                         Source_Map, Adder_Table);
+      while not Is_Empty (Failed_Gate_Set) loop
+         Put_Line ("Failed_Gate_Set:" & Failed_Gate_Set'Img);
+         Put (Adder_Table);
+         Find_Swappable (Failed_Gate_Set, Adder_Table, Swappable_Gate_Set,
+                         To_Fix);
+         Put_Line ("Swappable_Gate_Set:" & Swappable_Gate_Set'Img);
+         GcL := First (Swappable_Gate_Set);
+         loop -- Left swap gate
+            GcR := Next (Gcl);
+            loop -- Right swap gate
+               Swap (Element(GcL), Element (GcR), Gate_Store, Target_Map,
+                     Source_Map);
+               Tester (Input_List, Gate_Store, Target_Map, Output_List,
+                       Test_add'Access, Test_Failed_Gate_Set);
+               Improved :=  Intersection (To_Fix, Test_Failed_Gate_Set) =
+                 Gate_Sets.Empty_Set and then
+                 Is_Subset (Test_Failed_Gate_Set, Failed_Gate_Set);
+               if Improved then
+                  Include (Swapped_Gate_Set, Element (GcL));
+                  Include (Swapped_Gate_Set, Element (GcR));
+                  Put_Line ("Swapped " &  Element (GcL) & " and " &
+                              Element (GcR));
+                  Failed_Gate_Set := Copy (Test_Failed_Gate_Set);
+                  Build_Adder_Table (Input_List, Gate_Store, Target_Map,
+                                     Output_List, Source_Map, Adder_Table);
+               else
+                  Swap (Element (GcR), Element(GcL), Gate_Store, Target_Map,
+                        Source_Map); -- Put it back to how it was
+               end if; -- Improved
+               exit when Improved or else Next (GcR) = Gate_Sets.No_Element;
+               Next (GcR);
+            end loop; -- Right swap gate
+            exit when Improved or else Next (Next (GcL)) = Gate_Sets.No_Element;
+            Next (GcL);
+         end loop; -- Right swap gate
+      end loop; -- not Is_Empty (Failed_Gate_Set)
+      Put (Adder_Table);
+   end Repair_Adder;
 
    Input_List : Input_Lists.Map;
    Gate_Store : Gate_Stores.Map;
    Target_Map : Target_Maps.Map;
    Output_List : Output_Lists.Set;
    Source_Map : Source_Maps.Map;
-   Failed_Input_Set : Input_Sets.Set;
-   Failed_Gate_Set, Swapped_Gate_Set : Gate_Sets.Set;
+   Swapped_Gate_Set : Gate_Sets.Set;
 
 begin -- December_24
    Read_Input (Input_List, Gate_Store, Target_Map, Output_List, Source_Map);
@@ -862,13 +715,21 @@ begin -- December_24
    if (Argument_Count >= 2 and then Argument (2) = "2") or
      Argument_Count = 0 then
       if Argument_Count = 3 and then Argument (3) = "and" then
-         Repair (Input_List, Gate_Store, Target_Map, Output_List,
-                 Test_and'Access, Source_Map, Swapped_Gate_Set);
+         Repair_And (Input_List, Gate_Store, Target_Map, Output_List,
+                     Source_Map, Swapped_Gate_Set);
       else
-         Repair (Input_List, Gate_Store, Target_Map, Output_List,
-                 Test_add'Access, Source_Map, Swapped_Gate_Set);
+         Repair_Adder (Input_List, Gate_Store, Target_Map, Output_List,
+                       Source_Map, Swapped_Gate_Set);
       end if; -- Argument_Count = 3 and then Argument (2) = "and"
-      Put_Line ("Part two:" & Swapped_Gate_Set'Img);
+      Put ("Part two: ");
+      for S in Iterate (Swapped_Gate_Set) loop
+         Put (Element (S));
+         if S /= Last (Swapped_Gate_Set) then
+            Put (',');
+         else
+            New_Line;
+         end if; -- S /= Last (Swapped_Gate_Set)
+      end loop; -- S in Iterate (Swapped_Gate_Set)
       DJH.Execution_Time.Put_CPU_Time;
    end if; -- (Argument_Count >= 2 and then Argument (2) = "2") or ..
 end December_24;
