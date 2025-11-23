@@ -15,21 +15,12 @@ with DJH.Execution_Time; use DJH.Execution_Time;
 
 procedure December_21 is
 
-   subtype Robot_Indices is Positive range 1 .. 2;
-   -- The part 1 approach is infeasible for more than two robots!
+   subtype Robot_Indices is Positive range 1 .. 26;
 
    subtype Ordinates is Integer;
    type Coordinates is record
       X, Y : Ordinates;
    end record; -- Coordinates
-
-   function "+" (Left, Right : Coordinates) return Coordinates is
-     ((Left.X + Right.X, Left.Y + Right.Y));
-
-   function "-" (Left, Right : Coordinates) return Coordinates is
-     ((Left.X - Right.X, Left.Y - Right.Y));
-
-   Origin : constant Coordinates := (0, 0);
 
    subtype Door_Buttons is Character with
      Static_Predicate => Door_Buttons in 'A' | '0' .. '9';
@@ -51,35 +42,13 @@ procedure December_21 is
 
    Illegal_Door : exception;
 
-   type Door_Coordinates is new Coordinates;
-
-   function "+" (Left : Door_Coordinates;
-                 Right : Coordinates) return Door_Coordinates is
-
-      Result : Door_Coordinates;
-
-   begin -- "+"
-      Result.X := Left.X + Right.X;
-      Result.Y := Left.Y + Right.Y;
-      -- tried to use a dynamic predicate to enforce this but could not make
-      -- it work
-      if not (Result.X in Door_X) then
-         raise Illegal_Door with "Out of range X";
-      end if; -- not (Result.X in Door_X)
-      if not (Result.Y in Door_Y) then
-         raise Illegal_Door with "Out of range Y";
-      end if; -- not (Result.Y in Door_Y)
-      if Result.X = -2 and Result.Y = 0 then
-         raise Illegal_Door with "No button";
-      end if; -- Result.X = -2 and Result.Y = 0
-      return Result;
-   end "+";
-
-   function "-" (Left, Right : Door_Coordinates) return Coordinates is
-     ((Left.X - Right.X, Left.Y - Right.Y));
+   type Door_Coordinates is record
+      X : Door_X;
+      Y : Door_Y;
+   end record; -- Door_Coordinates
 
    type Door_States is record
-      Position : Door_Coordinates := Door_Coordinates (Origin);
+      Position : Door_Coordinates := (0, 0);
       Button : Door_Buttons := 'A';
    end record; -- Door_States
 
@@ -98,39 +67,10 @@ procedure December_21 is
 
    Illegal_Remote : exception;
 
-   type Remote_Coordinates is new Coordinates;
-
-   function "+" (Left : Remote_Coordinates;
-                 Right : Coordinates) return Remote_Coordinates is
-
-      Result : Remote_Coordinates;
-
-   begin -- "+"
-      Result.X := Left.X + Right.X;
-      Result.Y := Left.Y + Right.Y;
-      -- tried to use a dynamic predicate to enforce this but could not make
-      -- it work
-      if not (Result.X in Remote_X) then
-         raise Illegal_Remote with "Out of range X";
-      end if; -- not (Result.X in Remote_X)
-      if not (Result.Y in Remote_Y) then
-         raise Illegal_Remote with "Out of range Y";
-      end if; -- not (Result.Y in Remote_Y)
-      if Result.X = -2 and Result.Y = 0 then
-         raise Illegal_Remote with "No button";
-      end if; -- Result.X = -2 and Result.Y = 0
-      return Result;
-   end "+";
-
-   function "-" (Left, Right : Remote_Coordinates) return Coordinates is
-     ((Left.X - Right.X, Left.Y - Right.Y));
-
-   type Robot_States is record
-      Position : Remote_Coordinates := Remote_Coordinates (Origin);
-      Button : Remote_Buttons := 'A';
-   end record; -- Robot_States
-
-   type First_Directions is (Horizintal, Vertical);
+   type Remote_Coordinates is record
+      X : Remote_X;
+      Y : Remote_Y;
+   end record; -- Remote_Coordinates
 
    type Button_Map_Keys is record
       Start, Finish : Character;
@@ -145,11 +85,8 @@ procedure December_21 is
    End_Command : constant Codes := To_Unbounded_String ("End_Command");
    Stop_Command : constant Codes := To_Unbounded_String ("Stop_Command");
 
-   type Button_Map_Elements is array (First_Directions) of Codes;
-   -- Zero length code indicates illegal move.
-
    package Button_Maps is new
-     Ada.Containers.Ordered_Maps (Button_Map_Keys, Button_Map_Elements);
+     Ada.Containers.Ordered_Maps (Button_Map_Keys, Codes);
    use Button_Maps;
 
    type Code_Elements is record
@@ -160,37 +97,6 @@ procedure December_21 is
    package Code_Lists is new
      Ada.Containers.Doubly_Linked_Lists (Code_Elements);
    use Code_lists;
-
-   package Command_QI is new
-     Ada.Containers.Synchronized_Queue_Interfaces (Codes);
-   use Command_QI;
-
-   package Command_Queues is new
-     Ada.Containers.Unbounded_Synchronized_Queues (Command_QI);
-   use Command_Queues;
-
-   type Command_Queue_Access is access all Command_Queues.Queue;
-
-   type Build_Elements is record
-      Index : Natural;
-      Code : Codes;
-   end record; -- Build_Elements;
-
-   Start_Build : constant Build_Elements := (Index => 0,
-                                             Code => Null_Unbounded_String);
-
-   package Build_QI is new
-     Ada.Containers.Synchronized_Queue_Interfaces (Build_Elements);
-   use Build_QI;
-
-   package Build_Queues is new
-     Ada.Containers.Unbounded_Synchronized_Queues (Build_QI);
-   use Build_Queues;
-
-   task type Do_Robot is
-      entry Start (Remote_Map_E : in Button_Maps.Map;
-                   Command_In_E, Command_out_E : in Command_Queue_Access);
-   end Do_Robot;
 
    procedure Read_Input (Code_List : out Code_Lists.List) is
 
@@ -215,12 +121,10 @@ procedure December_21 is
 
       -- Assumes that either stepping vertically or stepping horizontally first
       -- will always be better than alternating between vertically and
-      -- horizontally. Note that locally the same number of steps is required
-      -- irrespective of the direct path used but this may not be the case when
-      -- global optomisation is applied.
+      -- horizontally. Empirically <v is better than v<.
 
       function Door_Coordinate (Door_Button : in Door_Buttons)
-                                 return Door_Coordinates is
+                                return Door_Coordinates is
 
          -- Returns the absolute coordinates of the button
 
@@ -251,73 +155,65 @@ procedure December_21 is
          end case; -- Door_Button
       end Door_Coordinate;
 
-      Door_Code : Button_Map_Elements;
-      Difference : Coordinates;
-      Dir : First_Directions;
-      Door_Robot : Door_States;
+      function Vertical (S, F : in Door_Buttons) return Codes is
+
+         Door_Code : Codes := Null_Unbounded_String;
+
+      begin -- Vertical
+         if Door_Coordinate (S).Y < Door_Coordinate (F).Y then
+            for U in Ordinates range
+              Door_Coordinate (S).Y .. Door_Coordinate (F).Y - 1 loop
+               Door_Code := @ & '^';
+            end loop; -- U in Ordinates range ..
+         elsif Door_Coordinate (F).Y < Door_Coordinate (S).Y then
+            for D in Ordinates range
+              Door_Coordinate (F).Y .. Door_Coordinate (S).Y - 1 loop
+               Door_Code := @ & 'v';
+            end loop; -- D in Ordinates range ..
+         end if; -- Door_Coordinate (S).Y < Door_Coordinate (F).Y
+         -- Does nothing if Door_Coordinate (S).Y = Door_Coordinate (F).Y
+         return Door_Code;
+      end Vertical;
+
+      function Horizontal (S, F : in Door_Buttons) return Codes is
+
+         Door_Code : Codes := Null_Unbounded_String;
+
+      begin -- Horizontal
+         if Door_Coordinate (S).X < Door_Coordinate (F).X then
+            for R in Ordinates range
+              Door_Coordinate (S).X .. Door_Coordinate (F).X - 1 loop
+               Door_Code := @ & '>';
+            end loop; -- R in Ordinates range ...
+         elsif Door_Coordinate (F).X < Door_Coordinate (S).X then
+            for L in Ordinates range
+              Door_Coordinate (F).X .. Door_Coordinate (S).X - 1 loop
+               Door_Code := @ & '<';
+            end loop; -- L in Ordinates range ...
+         end if; -- Door_Coordinate (S).X < Door_Coordinate (F).X
+         -- Does nothing if Door_Coordinate (S).X = Door_Coordinate (F).X
+         return Door_Code;
+      end Horizontal;
+
+      Door_Code : Codes;
 
    begin -- Build_Door_Map
       Clear (Door_Map);
       for S in Door_Buttons loop
          for F in Door_Buttons loop
-            Door_Code := (others => Null_Unbounded_String);
-            Difference := Door_Coordinate (F) - Door_Coordinate (S);
-            if Difference.X /= 0 then
-               Dir := Horizintal;
-               Door_Robot := (Door_Coordinate (S), S);
-               begin -- H exception block
-                  for L in Ordinates range Difference.X .. -1 loop
-                     Door_Code (Dir) := @ & '<';
-                     Door_Robot.Position := @ + (-1, 0);
-                  end loop; -- L in Ordinates range Difference.X .. -1
-                  for R in Ordinates range 1 .. Difference.X loop
-                     Door_Code (Dir) := @ & '>';
-                     Door_Robot.Position := @ + (1, 0);
-                  end loop; -- R in Ordinates range 1 .. Difference.X
-                  for U in Ordinates range 1 .. Difference.Y loop
-                     Door_Code (Dir) := @ & '^';
-                     Door_Robot.Position := @ + (0, 1);
-                  end loop; -- U in Ordinates range 1 .. Difference.Y
-                  for D in Ordinates range Difference.Y .. -1 loop
-                     Door_Code (Dir) := @ & 'v';
-                     Door_Robot.Position := @ + (0, -1);
-                  end loop; -- D in Ordinates range Difference.Y .. -1
-                  Door_Code (Dir) := @ & 'A';
-               exception
-                  when Illegal_Door =>
-                     Door_Code (Dir) := Null_Unbounded_String;
-               end; -- H exception block
-            end if; -- Difference.X /= 0
-            if Difference.Y /= 0 then
-               Dir := Vertical;
-               Door_Robot := (Door_Coordinate (S), S);
-               begin -- V exception block
-                  for U in Ordinates range 1 .. Difference.Y loop
-                     Door_Code (Dir) := @ & '^';
-                     Door_Robot.Position := @ + (0, 1);
-                  end loop; -- U in Ordinates range 1 .. Difference.Y
-                  for D in Ordinates range Difference.Y .. -1 loop
-                     Door_Code (Dir) := @ & 'v';
-                     Door_Robot.Position := @ + (0, -1);
-                  end loop; -- D in Ordinates range Difference.Y .. -1
-                  for L in Ordinates range Difference.X .. -1 loop
-                     Door_Code (Dir) := @ & '<';
-                     Door_Robot.Position := @ + (-1, 0);
-                  end loop; -- L in Ordinates range Difference.X .. -1
-                  for R in Ordinates range 1 .. Difference.X loop
-                     Door_Code (Dir) := @ & '>';
-                     Door_Robot.Position := @ + (1, 0);
-                  end loop; -- R in Ordinates range 1 .. Difference.X
-                  Door_Code (Dir) := @ & 'A';
-               exception
-                  when Illegal_Door =>
-                     Door_Code (Dir) := Null_Unbounded_String;
-               end; -- V exception block
-            end if; -- Difference.Y /= 0;
-            if S = F then
-               Door_Code (Horizintal) := To_Unbounded_String ("A");
-               -- same button pressed
-            end if; -- S = F
+            if Door_Coordinate (F).X = -2 and
+              Door_Coordinate (S).Y = 0 then
+               Door_Code := Vertical (S, F) & Horizontal (S, F) & 'A';
+            elsif Door_Coordinate (F).Y = 0 and
+              Door_Coordinate (S).X = -2 then
+               Door_Code := Horizontal (S, F) & Vertical (S, F) & 'A';
+            elsif Door_Coordinate (F).X < Door_Coordinate (S).X then
+               -- Either horozontal or vertical movement first is acceptamle.
+               -- Empirically <v is better than v<
+               Door_Code := Horizontal (S, F) & Vertical (S, F) & 'A';
+            else
+               Door_Code := Vertical (S, F) & Horizontal (S, F) & 'A';
+            end if; -- Door_Coordinate (F).X = -2 and ...
             Insert (Door_Map, (S, F), Door_Code);
          end loop; -- F in Door_Buttons
       end loop; -- S in Door_Buttons
@@ -327,9 +223,7 @@ procedure December_21 is
 
       -- Assumes that either stepping vertically or stepping horizontally first
       -- will always be better than alternating between vertically and
-      -- horizontally. Note that locally the same number of steps is required
-      -- irrespective of the direct path used but this may not be the case when
-      -- global optomisation is applied.
+      -- horizontally. Empirically <v is better than v<.
 
       function Remote_Coordinate (Remote_Button : in Remote_Buttons)
                                   return Remote_Coordinates is
@@ -351,173 +245,104 @@ procedure December_21 is
          end case; -- Remote_Button
       end Remote_Coordinate;
 
-      Remote_Code : Button_Map_Elements;
-      Difference : Coordinates;
-      Dir : First_Directions;
-      Remote_Robot : Robot_States;
+      function Vertical (S, F : in Remote_Buttons) return Codes is
+
+         Remote_Code : Codes := Null_Unbounded_String;
+
+      begin -- Vertical
+         if Remote_Coordinate (S).Y < Remote_Coordinate (F).Y then
+            for U in Ordinates range
+              Remote_Coordinate (S).Y .. Remote_Coordinate (F).Y - 1 loop
+               Remote_Code := @ & '^';
+            end loop; -- U in Ordinates range ..
+         elsif Remote_Coordinate (F).Y < Remote_Coordinate (S).Y then
+            for D in Ordinates range
+              Remote_Coordinate (F).Y .. Remote_Coordinate (S).Y - 1 loop
+               Remote_Code := @ & 'v';
+            end loop; -- D in Ordinates range ..
+         end if; -- Remote_Coordinate (S).Y < Remote_Coordinate (F).Y
+         -- Does nothing if Remote_Coordinate (S).Y = Remote_Coordinate (F).Y
+         return Remote_Code;
+      end Vertical;
+
+      function Horizontal (S, F : in Remote_Buttons) return Codes is
+
+         Remote_Code : Codes := Null_Unbounded_String;
+
+      begin -- Horizontal
+         if Remote_Coordinate (S).X < Remote_Coordinate (F).X then
+            for R in Ordinates range
+              Remote_Coordinate (S).X .. Remote_Coordinate (F).X - 1 loop
+               Remote_Code := @ & '>';
+            end loop; -- R in Ordinates range ...
+         elsif Remote_Coordinate (F).X < Remote_Coordinate (S).X then
+            for L in Ordinates range
+              Remote_Coordinate (F).X .. Remote_Coordinate (S).X - 1 loop
+               Remote_Code := @ & '<';
+            end loop; -- L in Ordinates range ...
+         end if; -- Remote_Coordinate (S).X < Remote_Coordinate (F).X
+         return Remote_Code;
+      end Horizontal;
+
+      Remote_Code : Codes;
 
    begin -- Build_Remote_Map
       Clear (Remote_Map);
       for S in Remote_Buttons loop
          for F in Remote_Buttons loop
-            Remote_Code := (others => Null_Unbounded_String);
-            Difference := Remote_Coordinate (F) - Remote_Coordinate (S);
-            if Difference.X /= 0 then
-               Dir := Horizintal;
-               Remote_Robot := (Remote_Coordinate (S), S);
-               begin -- H exception block
-                  for L in Ordinates range Difference.X .. -1 loop
-                     Remote_Code (Dir) := @ & '<';
-                     Remote_Robot.Position := @ + (-1, 0);
-                  end loop; -- L in Ordinates range Difference.X .. -1
-                  for R in Ordinates range 1 .. Difference.X loop
-                     Remote_Code (Dir) := @ & '>';
-                     Remote_Robot.Position := @ + (1, 0);
-                  end loop; -- R in Ordinates range 1 .. Difference.X
-                  for U in Ordinates range 1 .. Difference.Y loop
-                     Remote_Code (Dir) := @ & '^';
-                     Remote_Robot.Position := @ + (0, 1);
-                  end loop; -- U in Ordinates range 1 .. Difference.Y
-                  for D in Ordinates range Difference.Y .. -1 loop
-                     Remote_Code (Dir) := @ & 'v';
-                     Remote_Robot.Position := @ + (0, -1);
-                  end loop; -- D in Ordinates range Difference.Y .. -1
-                  Remote_Code (Dir) := @ & 'A';
-               exception
-                  when Illegal_Remote =>
-                     Remote_Code (Dir) := Null_Unbounded_String;
-               end; -- H exception block
-            end if; -- Difference.X /= 0
-            if Difference.Y /= 0 then
-               Dir := Vertical;
-               Remote_Robot := (Remote_Coordinate (S), S);
-               begin -- V exception block
-                  for U in Ordinates range 1 .. Difference.Y loop
-                     Remote_Code (Dir) := @ & '^';
-                     Remote_Robot.Position := @ + (0, 1);
-                  end loop; -- U in Ordinates range 1 .. Difference.Y
-                  for D in Ordinates range Difference.Y .. -1 loop
-                     Remote_Code (Dir) := @ & 'v';
-                     Remote_Robot.Position := @ + (0, -1);
-                  end loop; -- D in Ordinates range Difference.Y .. -1
-                  for L in Ordinates range Difference.X .. -1 loop
-                     Remote_Code (Dir) := @ & '<';
-                     Remote_Robot.Position := @ + (-1, 0);
-                  end loop; -- L in Ordinates range Difference.X .. -1
-                  for R in Ordinates range 1 .. Difference.X loop
-                     Remote_Code (Dir) := @ & '>';
-                     Remote_Robot.Position := @ + (1, 0);
-                  end loop; -- R in Ordinates range 1 .. Difference.X
-                  Remote_Code (Dir) := @ & 'A';
-               exception
-                  when Illegal_Remote =>
-                     Remote_Code (Dir) := Null_Unbounded_String;
-               end; -- V exception block
-            end if; -- Difference.Y /= 0
-            if S = F then
-               Remote_Code (Horizintal) := To_Unbounded_String ("A");
-               -- same button pressed
-            end if; -- S = F
-            Insert (Remote_Map, (S, F), Remote_Code);
+            if Remote_Coordinate (S).Y = 0 and
+              Remote_Coordinate (F).X = -2 then
+               Remote_Code := Vertical (S, F) & Horizontal (S, F) & 'A';
+            elsif Remote_Coordinate (F).Y = 0 and
+              Remote_Coordinate (S).X = -2 then
+               Remote_Code := Horizontal (S, F) & Vertical (S, F) & 'A';
+            elsif Remote_Coordinate (F).X < Remote_Coordinate (S).X then
+               -- Either horozontal or vertical movement first is acceptamle.
+               -- Empirically v< is better than <v
+               Remote_Code := Horizontal (S, F) & Vertical (S, F) & 'A';
+            else
+               Remote_Code := Vertical (S, F) & Horizontal (S, F) & 'A';
+            end if; -- Remote_Coordinate (S).Y = 0 and ...
+            if not ((S = '<' and F = '>') or (S = '>' and F = '<') or
+                      (S = '^' and F = 'v') or (S = 'v' and F = '^')) then
+               Insert (Remote_Map, (S, F), Remote_Code);
+            end if; -- not ((S = '<' and F = '>') or (S = '>' and F = '<') ...
          end loop; -- F in Remote_Buttons
       end loop; -- S in Remote_Buttons
    end Build_Remote_Map;
 
-   procedure Sequence (Door_Map : in Button_Maps.Map;
-                       Door_Command_Q, Human_Command_Q : in out
-                         Command_Queues.Queue;
-                       Code_Element : in out Code_Elements) is
+   procedure Door_Sequence (Door_Map : in Button_Maps.Map;
+                            Code_Element : in out Code_Elements) is
 
-      Build_Q : Build_Queues.Queue;
-      Current, Next : Build_Elements;
-      Button_Map_Key : Button_Map_Keys;
-      My_Code : Codes;
+      -- Produce key sequence for robot pressing door key pad.
 
-   begin -- Sequence
-      Build_Q.Enqueue (Start_Build);
-      while Build_Q.Current_Use > 0 loop
-         Build_Q.Dequeue (Current);
-         if Current.Index >= Length (Code_Element.Door_Code) then
-            Door_Command_Q.Enqueue (Current.Code);
-         else
-            Next.Index := Current.Index + 1;
-            if Current.Index = 0 then
-               Button_Map_Key.Start := 'A';
-            else
-               Button_Map_Key.Start :=
-                 Element (Code_Element.Door_Code, Current.Index);
-            end If; -- Current.Index = 0
-            Button_Map_Key.Finish :=
-              Element (Code_Element.Door_Code, Next.Index);
-            for F in First_Directions loop
-               if Length (Door_Map (Button_Map_Key) (F)) > 0 then
-                  Next.Code := Current.Code & Door_Map (Button_Map_Key) (F);
-                  Build_Q.Enqueue (Next);
-               end if; -- Length (Door_Map (Button_Map_Key) (F)) > 0
-            end loop; -- F in First_Directions
-         end if; -- Current.Index >= Length (Code_Element.Door_Code)
-      end loop; -- Build_Q.Current_Use > 0
-      Door_Command_Q.Enqueue (End_Command);
+      Previous_Button : Door_Buttons := 'A';
+
+   begin -- Door_Sequence
       Code_Element.My_Code := Null_Unbounded_String;
-      loop -- process one command sequence
-         Human_Command_Q.Dequeue (My_Code);
-         exit when My_Code = End_Command;
-         if Length (My_Code) < Length (Code_Element.My_Code) or else
-           Length (Code_Element.My_Code) = 0 then
-            Code_Element.My_Code := My_Code;
-         end if; -- Length (My_Code) < Length (Code_Element.My_Code) or else ...
-      end loop; -- process one command sequence
-   end Sequence;
+      for D in Positive range 1 .. Length (Code_Element.Door_Code) loop
+         Code_Element.My_Code := @ &
+           Door_Map ((Previous_Button, Element (Code_Element.Door_Code, D)));
+         Previous_Button :=Element (Code_Element.Door_Code, D);
+      end loop; -- D in Positive range 1 .. Length (Code_Element.Door_Code)
+   end Door_Sequence;
 
-   task body Do_Robot is
+   procedure Robot_Sequence (Remote_Map : in Button_Maps.Map;
+                             Code_Element : in out Code_Elements) is
 
-      Build_Q : Build_Queues.Queue;
-      Current, Next : Build_Elements;
-      Remote_Map_Key : Button_Map_Keys;
-      Code : Codes;
-      Remote_Map : Button_Maps.Map;
-      Command_In, Command_out : Command_Queue_Access;
+      -- Produce key sequence for robot pression robot remote key pad.
 
-   begin -- Do_Robot
-      accept Start (Remote_Map_E : in Button_Maps.Map;
-                    Command_In_E, Command_out_E : in Command_Queue_Access) do
-         Remote_Map := Remote_Map_E;
-         Command_In := Command_In_E;
-         Command_Out := Command_out_E;
-      end Start;
-      loop -- process one command sequence
-         Command_In.Dequeue (Code);
-         if Code = End_Command then
-            Command_Out.Enqueue (End_Command);
-         elsif  Code = Stop_Command then
-            Command_Out.Enqueue (Stop_Command);
-            exit;
-         else
-            Build_Q.Enqueue (Start_Build);
-            while Build_Q.Current_Use > 0 loop
-               Build_Q.Dequeue (Current);
-               if Current.Index >= Length (Code) then
-                  Command_Out.Enqueue (Current.Code);
-               else
-                  Next.Index := Current.Index + 1;
-                  if Current.Index = 0 then
-                     Remote_Map_Key.Start := 'A';
-                  else
-                     Remote_Map_Key.Start := Element (Code, Current.Index);
-                  end If; -- Current.Index = 0
-                  Remote_Map_Key.Finish := Element (Code, Next.Index);
-                  for F in First_Directions loop
-                     if Length (Remote_Map (Remote_Map_Key) (F)) > 0 then
-                        Next.Code := Current.Code &
-                          Remote_Map (Remote_Map_Key) (F);
-                        Build_Q.Enqueue (Next);
-                     end if; -- Length (Remote_Map (Button_Map_Key) (F)) > 0
-                  end loop; -- F in First_Directions
-               end if; -- Current.Index >= Length (Code)
-            end loop; -- Build_Q.Current_Use > 0
-         end if; -- Code = End_Command
-      end loop; -- process one command sequence
-   end Do_Robot;
+      Previous_Button : Remote_Buttons := 'A';
+      Door_Code : Unbounded_String := Code_Element.My_Code;
+
+   begin -- Robot_Sequence
+      Code_Element.My_Code := Null_Unbounded_String;
+      for R in Positive range 1 .. Length (Door_Code) loop
+         Code_Element.My_Code := @ &
+           Remote_Map ((Previous_Button, Element (Door_Code, R)));
+         Previous_Button :=Element (Door_Code, R);
+      end loop; -- R in Positive range 1 .. Length (Door_Code)
+   end Robot_Sequence;
 
    function Complexity (Code_Element : in Code_Elements) return Natural is
 
@@ -533,183 +358,22 @@ procedure December_21 is
       return Code_Number * Sequence_Length;
    end Complexity;
 
-   procedure Sequence_2 (Door_Map : in Button_Maps.Map;
-                         Code_In : in Codes;
-                         In_Q, Out_Q : in out Command_Queues.Queue) is
-
-      package Door_Code_lists is new
-        Ada.Containers.Doubly_Linked_Lists (Codes);
-      use Door_Code_lists;
-
-      package Count_Maps is new
-        Ada.Containers.Ordered_Maps (Codes, Positive);
-      use Count_Maps;
-
-      package Cost_Maps is new
-        Ada.Containers.Ordered_Maps (Codes, Count_Maps.Map);
-      use Cost_Maps;
-
-      procedure To_Count_Map (Code : in Codes;
-                              Count_Map : out Count_Maps.Map) is
-
-         A_Set : constant Character_Set := To_Set ("A");
-         Start_At, First : Positive;
-         Last : Natural;
-
-      begin -- To_Count_Map
-         Clear (Count_Map);
-         Start_At := 1;
-         while Start_At < Length (Code) loop
-            Find_Token (Code, A_Set, Start_At, Outside, First, Last);
-            if Contains (Count_Map, Unbounded_Slice (Code, First, Last + 1))
-            then
-               Count_Map (Unbounded_Slice (Code, First, Last + 1)) :=
-                 Count_Map (Unbounded_Slice (Code, First, Last + 1)) + 1;
-            else
-               Insert (Count_Map, Unbounded_Slice (Code, First, Last + 1), 1);
-            end if; -- Contains (Count_Map, Unbounded_Slice (Code ...
-            Start_At := Last + 2;
-            if Start_At < Length (Code) and then
-              Element (Code, Start_At) = 'A' then
-               -- Consecutive acknoledges, assumption "AAA" cannot occur
-               if Contains (Count_Map, To_Unbounded_String ("A")) then
-                  Count_Map (To_Unbounded_String ("A")) :=
-                    Count_Map (To_Unbounded_String ("A")) + 1;
-               else
-                  Insert (Count_Map, To_Unbounded_String ("A"), 1);
-               end if; -- Contains (Count_Map, To_Unbounded_String ("A"))
-            end if; -- Start_At < Length (Code) and then ...
-         end loop; -- Start_At < Length (Code)
-      end To_Count_Map;
-
-      procedure Do_Robot_N (Level : in Natural;
-                            Cost_Map : in out Cost_Maps.Map;
-                            Count_Map : in Count_Maps.Map;
-                            Total_Cost : in out  Natural) is
-
-         procedure Update (Code : in Codes;
-                           Cost_Map : in out Cost_Maps.Map) is
-
-            Code_Out, Saved_Code : Codes;
-            Saved_Length : Positive := Positive'Last;
-            Count_Map : Count_Maps.Map;
-
-         begin -- Update
-            In_Q.Enqueue (Code);
-            In_Q.Enqueue (End_Command);
-            loop -- Retrieve one Code
-               Out_Q.Dequeue (Code_Out);
-               exit when Code_Out = End_Command;
-               -- Local optimisation only, is this good enough?
-               if Saved_Length > Length (Code_Out) then
-                  Saved_Length := Length (Code_Out);
-                  Saved_Code := Code_Out;
-               end if; -- Saved_Length > Length (Code_Out)
-            end loop; -- Retrieve one Code
-            To_Count_Map (Saved_Code, Count_Map);
-            Insert (Cost_Map, Code, Count_Map);
-         end Update;
-
-         Sum : Natural := 0;
-         Count_Map_Out : Count_Maps.Map := Count_Maps.Empty_Map;
-         Local : Count_Maps.Map;
-
-      begin -- Do_Robot_N
-         if Level = 0 then
-            for C in Iterate (Count_Map) loop
-               Sum := @ + Element (C) * Length (Key (C));
-            end loop; -- C in Iterate (Count_Map)
-            -- global optimisation
-            if Total_Cost > Sum then
-               Total_Cost := Sum;
-            end if; -- Total_Cost > Sum
-         else
-            for C in Iterate (Count_Map) loop
-               if not Contains (Cost_Map, Key (C)) then
-                  Update (Key (C), Cost_Map);
-               end if; -- not Contains (Cost_Map, Key (C))
-               Local := Cost_Map (Key (C));
-               for L in Iterate (Local) loop
-                  if Contains (Count_Map_Out, Key (L)) then
-                     Count_Map_Out (Key (L)) := Count_Map_Out (Key (L)) +
-                       Element (L);
-                  else
-                     Insert (Count_Map_Out, Key (L), Element (L));
-                  end if; -- Contains (Count_Map_Out, Key (L))
-               end loop; -- L in Iterate (Local)
-            end loop; -- C in Iterate (Count_Map)
-            Do_Robot_N (Level - 1, Cost_Map, Count_Map_Out, Total_Cost);
-         end if; -- Level = 0
-      end Do_Robot_N;
-
-      Build_Q : Build_Queues.Queue;
-      Current, Next : Build_Elements;
-      Button_Map_Key : Button_Map_Keys;
-      Door_Code_List : Door_Code_Lists.List := Door_Code_Lists.Empty_List;
-      Door_Count_Map : Count_Maps.Map;
-
-   begin -- Sequence_2
-      Build_Q.Enqueue (Start_Build);
-      while Build_Q.Current_Use > 0 loop
-         Build_Q.Dequeue (Current);
-         if Current.Index >= Length (Code_In) then
-            Append (Door_Code_List, Current.Code);
-         else
-            Next.Index := Current.Index + 1;
-            if Current.Index = 0 then
-               Button_Map_Key.Start := 'A';
-            else
-               Button_Map_Key.Start :=
-                 Element (Code_In, Current.Index);
-            end If; -- Current.Index = 0
-            Button_Map_Key.Finish :=
-              Element (Code_In, Next.Index);
-            for F in First_Directions loop
-               if Length (Door_Map (Button_Map_Key) (F)) > 0 then
-                  Next.Code := Current.Code & Door_Map (Button_Map_Key) (F);
-                  Build_Q.Enqueue (Next);
-               end if; -- Length (Door_Map (Button_Map_Key) (F)) > 0
-            end loop; -- F in First_Directions
-         end if; -- Current.Index >= Length (Code_In
-      end loop; -- Build_Q.Current_Use > 0
-      Put_Line (Code_In & Door_Code_List'Img);
-      for C in Iterate (Door_Code_List) loop
-         To_Count_Map (Element (C), Door_Count_Map);
-         Put_Line (Element (C) & Door_Count_Map'Img);
-      end loop; -- C in Iterate (Door_Code_List)
-   end Sequence_2;
-
    Code_List : Code_Lists.List;
    Door_Map, Remote_Map : Button_Maps.Map;
-   Door_Command_Q : aliased Command_Queues.Queue;
-   Robot_Array : array (Robot_Indices) of Do_Robot;
-   Part_Two_Robot : Do_Robot;
-   Part_Two_In_Q, Part_Two_Out_Q : aliased Command_Queues.Queue;
-   Link_Array : array (Robot_Indices) of aliased Command_Queues.Queue;
    Sum : Natural := 0;
 
 begin -- December_21
    Read_Input (Code_List);
    Build_Door_Map (Door_Map);
    Build_Remote_Map (Remote_Map);
-   Robot_Array (1).Start (Remote_Map, Door_Command_Q'Access,
-                          Link_Array (1)'Access);
-   Robot_Array (2).Start (Remote_Map, Link_Array (1)'Access,
-                          Link_Array (2)'Access);
    for C in Iterate (Code_List) loop
-      Sequence (Door_Map, Door_Command_Q, Link_Array (2), Code_List (C));
+      Door_Sequence (Door_Map, Code_List (C));
+      Robot_Sequence (Remote_Map, Code_List (C));
+      Robot_Sequence (Remote_Map, Code_List (C));
       Sum := @ + Complexity (Element (C));
    end loop; -- C in Iterate (Code_List)
    Put_Line ("Part one:" & Sum'Img);
    DJH.Execution_Time.Put_CPU_Time;
-   Part_Two_Robot.Start (Remote_Map,Part_Two_In_Q'Access,
-                         Part_Two_Out_Q'Access);
-   for C in Iterate (Code_List) loop
-      Sequence_2 (Door_Map, Element (C).Door_Code, Part_Two_In_Q,
-                  Part_Two_Out_Q);
-   end loop; -- C in Iterate (Code_List)
    Put_Line ("Part two:");
    DJH.Execution_Time.Put_CPU_Time;
-   Door_Command_Q.Enqueue (Stop_Command);
-   Part_Two_In_Q.Enqueue (Stop_Command);
 end December_21;
